@@ -153,7 +153,7 @@
   /* ---- Modal ---- */
   .modal-backdrop{
     position:fixed; inset:0; background:rgba(10,14,8,0.72); display:none; align-items:center; justify-content:center;
-    z-index:100; padding:16px;
+    z-index:100; padding:166px;
   }
   .modal-backdrop.open{display:flex;}
   .modal{
@@ -212,6 +212,16 @@
     <div class="auth-error" id="authError"></div>
     <div class="field"><label>Email</label><input type="email" id="auth_email" placeholder="you@example.com" autocomplete="email"></div>
     <div class="field"><label>Password</label><input type="password" id="auth_password" placeholder="••••••••" autocomplete="current-password"></div>
+    
+    <!-- New Account Role Selector (Hidden on Sign-In) -->
+    <div class="field" id="roleField" style="display: none;">
+      <label>Account Type / Role</label>
+      <select id="auth_role">
+        <option value="owner">Business Owner (Full Access)</option>
+        <option value="staff">Staff Member (Business Dashboard Only)</option>
+      </select>
+    </div>
+
     <button class="btn" id="authSubmitBtn" style="width:100%;">Sign in</button>
     <div class="auth-toggle">
       <span id="authToggleText">New here?</span>
@@ -448,8 +458,6 @@ const WEEK1_SEED = {
 
 /* ============================================================
    STORAGE — Supabase (Postgres), scoped to the signed-in user via RLS.
-   Every read/write goes over the network, so this now syncs in
-   real time across phone, laptop, and tablet.
    ============================================================ */
 function rowFromDb(r){
   return {
@@ -475,13 +483,19 @@ async function loadAll(){
     else if(seedErr) console.error('week 1 seed failed', seedErr);
   }
 
-  const { data: perRows, error: perErr } = await sb
-    .from('personal_transactions').select('*').order('date', { ascending: false });
-  if(perErr){ console.error('load personal failed', perErr); per = []; }
-  else per = (perRows || []).map(t => ({
-    id: t.id, date: t.date, description: t.description, amount: Number(t.amount),
-    type: t.type, method: t.method, category: t.category
-  }));
+  // Staff members shouldn't pull personal details even if they try
+  const role = currentUser?.user_metadata?.role || 'owner';
+  if (role === 'owner') {
+    const { data: perRows, error: perErr } = await sb
+      .from('personal_transactions').select('*').order('date', { ascending: false });
+    if(perErr){ console.error('load personal failed', perErr); per = []; }
+    else per = (perRows || []).map(t => ({
+      id: t.id, date: t.date, description: t.description, amount: Number(t.amount),
+      type: t.type, method: t.method, category: t.category
+    }));
+  } else {
+    per = [];
+  }
 }
 
 async function insertBizRow(row){
@@ -532,9 +546,6 @@ function calcRow(row){
   const surplus = row.gross - row.food - row.fixed - row.other;
   const safety = surplus > 0 ? surplus * 0.5 : 0;
   const opsNet = surplus > 0 ? surplus * 0.5 : 0;
-  // G is redefined: it is the UNRESOLVED balance, not a forced zero.
-  // If surplus negative -> G is the deficit (must carry to next week's Other).
-  // If surplus >= 0 -> allocation is exact, G should read 0. If it doesn't, that's a real bug to catch.
   const allocated = safety + opsNet;
   const auditG = surplus >= 0 ? (surplus - allocated) : surplus; // negative = deficit
   const baselineBroken = row.gross >= 1250 && row.food !== 1250 && !row.locked;
@@ -749,6 +760,9 @@ function weekKey(dateStr){
 }
 
 function renderPersonal(){
+  const role = currentUser?.user_metadata?.role || 'owner';
+  if (role === 'staff') return; // Do not process personal views for staff
+
   const tbody = document.getElementById('perTbody');
   tbody.innerHTML = '';
   const sorted = [...per].sort((a,b)=> new Date(b.date) - new Date(a.date));
@@ -780,7 +794,7 @@ function renderPersonal(){
     btn.addEventListener('click', ()=> deletePer(btn.dataset.pdel));
   });
 
-  // current week stats (most recent week present, or this calendar week)
+  // current week stats
   const todayKey = weekKey(new Date().toISOString().slice(0,10));
   const weekTx = per.filter(t=> weekKey(t.date) === todayKey);
   const inflow = weekTx.filter(t=>t.type==='inflow').reduce((s,t)=>s+t.amount,0);
@@ -921,6 +935,8 @@ tabBiz.addEventListener('click', ()=>{
   document.getElementById('personalView').style.display = 'none';
 });
 tabPer.addEventListener('click', ()=>{
+  const role = currentUser?.user_metadata?.role || 'owner';
+  if (role === 'staff') return; // staff members can't toggle to personal view
   tabPer.classList.add('active'); tabBiz.classList.remove('active');
   document.getElementById('personalView').style.display = 'block';
   document.getElementById('businessView').style.display = 'none';
@@ -989,11 +1005,14 @@ document.getElementById('authToggleBtn').addEventListener('click', ()=>{
   document.getElementById('authToggleText').textContent = authMode === 'signin' ? 'New here?' : 'Already have an account?';
   document.getElementById('authToggleBtn').textContent = authMode === 'signin' ? 'Create an account' : 'Sign in instead';
   document.getElementById('authError').textContent = '';
+  // Toggle role field visibility (only on signup)
+  document.getElementById('roleField').style.display = authMode === 'signup' ? 'block' : 'none';
 });
 
 document.getElementById('authSubmitBtn').addEventListener('click', async ()=>{
   const email = document.getElementById('auth_email').value.trim();
   const password = document.getElementById('auth_password').value;
+  const role = document.getElementById('auth_role').value;
   const errEl = document.getElementById('authError');
   errEl.textContent = '';
 
@@ -1008,10 +1027,21 @@ document.getElementById('authSubmitBtn').addEventListener('click', async ()=>{
 
   document.getElementById('authSubmitBtn').disabled = true;
 
-  const { data, error } = authMode === 'signin'
-    ? await sb.auth.signInWithPassword({ email, password })
-    : await sb.auth.signUp({ email, password });
+  let result;
+  if (authMode === 'signin') {
+    result = await sb.auth.signInWithPassword({ email, password });
+  } else {
+    // Signup: Store metadata so we know their role on login
+    result = await sb.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { role: role } 
+      }
+    });
+  }
 
+  const { data, error } = result;
   document.getElementById('authSubmitBtn').disabled = false;
 
   if(error){
@@ -1022,7 +1052,6 @@ document.getElementById('authSubmitBtn').addEventListener('click', async ()=>{
     errEl.textContent = 'Account created. Check your email to confirm, then sign in.';
     return;
   }
-  // signInWithPassword success (or signup with immediate session) triggers onAuthStateChange below
 });
 
 document.getElementById('signOutBtn').addEventListener('click', async ()=>{
@@ -1048,15 +1077,32 @@ if(sb){
    INIT
    ============================================================ */
 async function bootApp(){
+  const role = currentUser?.user_metadata?.role || 'owner';
+  
+  // Apply visual boundaries based on user roles
+  if(role === 'staff'){
+    document.getElementById('tabPersonalBtn').style.display = 'none'; // Hide personal tab completely
+    // Ensure we start on business view
+    document.getElementById('tabBusinessBtn').classList.add('active');
+    document.getElementById('tabPersonalBtn').classList.remove('active');
+    document.getElementById('businessView').style.display = 'block';
+    document.getElementById('personalView').style.display = 'none';
+  } else {
+    document.getElementById('tabPersonalBtn').style.display = 'block'; // Show personal view switch for owner
+  }
+
   await loadAll();
   document.getElementById('f_week').value = nextWeekLabel();
   document.getElementById('p_date').value = new Date().toISOString().slice(0,10);
+  
   updateCategoryOptions();
   renderBusiness();
-  renderPersonal();
+  if(role === 'owner'){
+    renderPersonal();
+  }
 }
 
-// on page load, check for an existing session (keeps you signed in across visits)
+// Check for session on load
 (async ()=>{
   if(!sb){
     document.getElementById('authScreen').style.display = 'flex';
@@ -1070,7 +1116,6 @@ async function bootApp(){
   if(!data.session){
     document.getElementById('authScreen').style.display = 'flex';
   }
-  // if a session exists, onAuthStateChange fires automatically and boots the app
 })();
 
 })();
