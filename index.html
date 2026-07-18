@@ -283,6 +283,8 @@
   <!-- ============ BUSINESS VIEW ============ -->
   <div id="businessView">
 
+    <div id="offlineBanner" style="display:none; background:var(--amber); color:#12180F; padding:10px 14px; border-radius:8px; font-family:var(--mono); font-size:0.78rem; margin-bottom:14px; font-weight:600;"></div>
+
     <div class="stat-grid">
       <div class="stat-card"><div class="label">Active Week</div><div class="value" id="bizActiveWeek">—</div></div>
       <div class="stat-card"><div class="label">Safety Buffer (total)</div><div class="value green" id="bizSafetyTotal">—</div></div>
@@ -294,12 +296,14 @@
       <h2>Log a week <span class="eyebrow">Step 1–3: raw input, baselines, emergencies</span></h2>
       <form class="entry-form" id="bizForm">
         <div class="field"><label>Week label</label><input type="text" id="f_week" placeholder="Week 2"></div>
+        <div class="field"><label>Your name (logging this)</label><input type="text" id="f_logged_by" placeholder="e.g. Wangechi, night shift"></div>
         <div class="field"><label>Gross payout (KSh)</label><input type="number" id="f_gross" min="0" step="1" placeholder="0"></div>
         <div class="field"><label>Food &amp; Tx (KSh)</label><input type="number" id="f_food" min="0" step="1" value="1250"></div>
         <div class="field"><label>Fixed costs (KSh)</label><input type="number" id="f_fixed" min="0" step="1" value="5750"></div>
         <div class="field"><label>Other / emergency (KSh)</label><input type="number" id="f_other" min="0" step="1" value="0"></div>
         <div class="field full"><label>Note (optional)</label><input type="text" id="f_note" placeholder="e.g. battery repair, spare part order"></div>
       </form>
+      <div id="bizFormError" style="color:var(--danger); font-family:var(--mono); font-size:0.78rem; margin-bottom:8px; min-height:1em;"></div>
       <div class="btn-row">
         <button class="btn" id="bizSaveBtn">Save week</button>
         <button class="btn secondary" id="bizCancelEdit" style="display:none;">Cancel edit</button>
@@ -312,7 +316,7 @@
         <table id="bizTable">
           <thead>
             <tr>
-              <th>Week</th><th>Gross (B)</th><th>Food (C)</th><th>Fixed (D)</th><th>Other (J)</th>
+              <th>Week</th><th>Logged By</th><th>Gross (B)</th><th>Food (C)</th><th>Fixed (D)</th><th>Other (J)</th>
               <th>Safety (E)</th><th>Ops Net (F)</th><th>Audit (G)</th><th>Status</th><th></th>
             </tr>
           </thead>
@@ -489,9 +493,49 @@ const WEEK1_SEED = {
 function rowFromDb(r){
   return {
     id: r.id, week: r.week, gross: Number(r.gross), food: Number(r.food),
-    fixed: Number(r.fixed), other: Number(r.other), note: r.note || '', locked: r.locked
+    fixed: Number(r.fixed), other: Number(r.other), note: r.note || '', locked: r.locked,
+    logged_by_name: r.logged_by_name || ''
   };
 }
+
+/* ---- offline queue (business inserts only; edits/deletes require being online since only owner does those) ---- */
+const PENDING_KEY = 'motionz-pending-biz-queue';
+function getPendingQueue(){
+  try{ return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); }catch(e){ return []; }
+}
+function savePendingQueue(q){
+  try{ localStorage.setItem(PENDING_KEY, JSON.stringify(q)); }catch(e){ console.error('queue save failed', e); }
+}
+function updatePendingBanner(){
+  const banner = document.getElementById('offlineBanner');
+  if(!banner) return;
+  const q = getPendingQueue();
+  if(q.length > 0){
+    banner.style.display = 'block';
+    banner.textContent = `${q.length} week${q.length>1?'s':''} saved offline — will sync automatically once you're back online.`;
+  } else {
+    banner.style.display = 'none';
+  }
+}
+async function flushPendingQueue(){
+  const queue = getPendingQueue();
+  if(queue.length === 0) return;
+  const remaining = [];
+  for(const item of queue){
+    const { tempId, ...payload } = item;
+    try{
+      const { error } = await sb.from('business_entries').insert([payload]).select();
+      if(error) remaining.push(item);
+    }catch(e){
+      remaining.push(item);
+    }
+  }
+  savePendingQueue(remaining);
+  await loadAll();
+  renderBusiness();
+  updatePendingBanner();
+}
+window.addEventListener('online', flushPendingQueue);
 
 async function loadAll(){
   const { data: bizRows, error: bizErr } = await sb
@@ -517,23 +561,67 @@ async function loadAll(){
     id: t.id, date: t.date, description: t.description, amount: Number(t.amount),
     type: t.type, method: t.method, category: t.category
   }));
+
+  updatePendingBanner();
 }
 
+// Returns {ok, row, error, queued}
 async function insertBizRow(row){
-  const { data, error } = await sb.from('business_entries').insert([{
-    week: row.week, gross: row.gross, food: row.food, fixed: row.fixed,
-    other: row.other, note: row.note, locked: false
-  }]).select();
-  if(error){ console.error('insert biz failed', error); return null; }
-  return rowFromDb(data[0]);
+  const duplicate = biz.some(r => r.week.trim().toLowerCase() === row.week.trim().toLowerCase());
+  if(duplicate){
+    return { ok:false, error: `"${row.week}" already exists in the ledger — use a different label.` };
+  }
+
+  if(!navigator.onLine){
+    const queue = getPendingQueue();
+    const tempId = 'pending-' + Date.now();
+    queue.push({ tempId, ...row });
+    savePendingQueue(queue);
+    updatePendingBanner();
+    return { ok:true, queued:true, row: { ...row, id: tempId, locked:false } };
+  }
+
+  try{
+    const { data, error } = await sb.from('business_entries').insert([{
+      week: row.week, gross: row.gross, food: row.food, fixed: row.fixed,
+      other: row.other, note: row.note, locked: false, logged_by_name: row.logged_by_name || ''
+    }]).select();
+
+    if(error){
+      if(error.code === '23505'){
+        return { ok:false, error: `"${row.week}" already exists in the ledger — someone else may have just logged it. Use a different label.` };
+      }
+      console.error('insert biz failed', error);
+      const queue = getPendingQueue();
+      const tempId = 'pending-' + Date.now();
+      queue.push({ tempId, week: row.week, gross: row.gross, food: row.food, fixed: row.fixed, other: row.other, note: row.note, locked: false, logged_by_name: row.logged_by_name || '' });
+      savePendingQueue(queue);
+      updatePendingBanner();
+      return { ok:true, queued:true, row: { ...row, id: tempId, locked:false } };
+    }
+    return { ok:true, row: rowFromDb(data[0]) };
+  }catch(e){
+    console.error('insert biz threw', e);
+    const queue = getPendingQueue();
+    const tempId = 'pending-' + Date.now();
+    queue.push({ tempId, week: row.week, gross: row.gross, food: row.food, fixed: row.fixed, other: row.other, note: row.note, locked: false, logged_by_name: row.logged_by_name || '' });
+    savePendingQueue(queue);
+    updatePendingBanner();
+    return { ok:true, queued:true, row: { ...row, id: tempId, locked:false } };
+  }
 }
 
 async function updateBizRow(row){
   const { error } = await sb.from('business_entries').update({
     week: row.week, gross: row.gross, food: row.food, fixed: row.fixed,
-    other: row.other, note: row.note
+    other: row.other, note: row.note, logged_by_name: row.logged_by_name || ''
   }).eq('id', row.id);
-  if(error) console.error('update biz failed', error);
+  if(error){
+    if(error.code === '23505') return { ok:false, error: `"${row.week}" already exists — use a different label.` };
+    console.error('update biz failed', error);
+    return { ok:false, error: 'Update failed — check your connection and try again.' };
+  }
+  return { ok:true };
 }
 
 async function deleteBizRow(id){
@@ -608,6 +696,7 @@ function renderBusiness(){
 
     tr.innerHTML = `
       <td>${row.week}${row.note ? `<div style="color:var(--text-dim); font-size:0.68rem; margin-top:2px;">${row.note}</div>` : ''}</td>
+      <td>${row.logged_by_name ? row.logged_by_name : '<span style="color:var(--text-dim);">—</span>'}${String(row.id).startsWith('pending-') ? '<div style="color:var(--amber); font-size:0.65rem; margin-top:2px;">syncing…</div>' : ''}</td>
       <td>${fmt(row.gross)}</td>
       <td>${fmt(row.food)}</td>
       <td>${fmt(row.fixed)}</td>
@@ -692,11 +781,20 @@ function renderBizCharts(){
 /* ---- business form handlers ---- */
 document.getElementById('bizSaveBtn').addEventListener('click', async ()=>{
   const week = document.getElementById('f_week').value.trim() || nextWeekLabel();
+  const loggedByName = document.getElementById('f_logged_by').value.trim();
   const gross = parseFloat(document.getElementById('f_gross').value) || 0;
   const food = parseFloat(document.getElementById('f_food').value) || 0;
   const fixed = parseFloat(document.getElementById('f_fixed').value) || 0;
   let other = parseFloat(document.getElementById('f_other').value) || 0;
   const note = document.getElementById('f_note').value.trim();
+  const errEl = document.getElementById('bizFormError');
+  errEl.textContent = '';
+  errEl.style.color = 'var(--danger)';
+
+  if(!loggedByName){
+    errEl.textContent = 'Enter your name so this entry can be traced to whoever logged it.';
+    return;
+  }
 
   // auto carry-in from previous deficit
   const lastRow = biz[biz.length-1];
@@ -711,14 +809,31 @@ document.getElementById('bizSaveBtn').addEventListener('click', async ()=>{
 
   if(editingBizId){
     const row = biz.find(r=>r.id === editingBizId);
-    Object.assign(row, {week, gross, food, fixed, other, note});
-    await updateBizRow(row);
+    const backup = { ...row };
+    Object.assign(row, {week, gross, food, fixed, other, note, logged_by_name: loggedByName});
+    const result = await updateBizRow(row);
+    if(!result.ok){
+      Object.assign(row, backup); // revert local state
+      errEl.textContent = result.error;
+      document.getElementById('bizSaveBtn').disabled = false;
+      renderBusiness();
+      return;
+    }
     editingBizId = null;
     document.getElementById('bizCancelEdit').style.display = 'none';
     document.getElementById('bizSaveBtn').textContent = 'Save week';
   } else {
-    const newRow = await insertBizRow({week, gross, food, fixed, other, note});
-    if(newRow) biz.push(newRow);
+    const result = await insertBizRow({week, gross, food, fixed, other, note, logged_by_name: loggedByName});
+    if(!result.ok){
+      errEl.textContent = result.error;
+      document.getElementById('bizSaveBtn').disabled = false;
+      return;
+    }
+    biz.push(result.row);
+    if(result.queued){
+      errEl.style.color = 'var(--amber)';
+      errEl.textContent = 'No connection — saved on this device and will sync automatically once you\'re back online.';
+    }
   }
 
   document.getElementById('bizSaveBtn').disabled = false;
@@ -745,6 +860,7 @@ function openBizEdit(id){
   if(!row) return;
   editingBizId = id;
   document.getElementById('f_week').value = row.week;
+  document.getElementById('f_logged_by').value = row.logged_by_name || '';
   document.getElementById('f_gross').value = row.gross;
   document.getElementById('f_food').value = row.food;
   document.getElementById('f_fixed').value = row.fixed;
@@ -1168,6 +1284,8 @@ if(sb){
       await bootApp();
     } else {
       currentUser = null; currentRole = null;
+      clearTimeout(idleTimer);
+      if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel = null; }
       document.getElementById('appShell').style.display = 'none';
       document.getElementById('authScreen').style.display = 'flex';
     }
@@ -1177,6 +1295,34 @@ if(sb){
 /* ============================================================
    INIT
    ============================================================ */
+let realtimeChannel = null;
+function setupRealtimeSync(){
+  if(realtimeChannel) return; // already subscribed
+  realtimeChannel = sb.channel('business_entries_live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'business_entries' }, async (payload)=>{
+      await loadAll();
+      renderBusiness();
+    })
+    .subscribe();
+}
+
+/* ---- idle auto sign-out (15 min), important on shared station devices ---- */
+const IDLE_LIMIT_MS = 15 * 60 * 1000;
+let idleTimer = null;
+function resetIdleTimer(){
+  if(!currentUser) return;
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(async ()=>{
+    if(currentUser){
+      await sb.auth.signOut();
+      alert('Signed out after 15 minutes of inactivity — for security on shared devices.');
+    }
+  }, IDLE_LIMIT_MS);
+}
+['click','keydown','touchstart','mousemove'].forEach(evt=>{
+  window.addEventListener(evt, resetIdleTimer, { passive:true });
+});
+
 async function bootApp(){
   await loadAll();
   document.getElementById('f_week').value = nextWeekLabel();
@@ -1184,6 +1330,9 @@ async function bootApp(){
   updateCategoryOptions();
   renderBusiness();
   renderPersonal();
+  setupRealtimeSync();
+  resetIdleTimer();
+  if(navigator.onLine) flushPendingQueue();
 }
 
 // on page load, check for an existing session (keeps you signed in across visits)
