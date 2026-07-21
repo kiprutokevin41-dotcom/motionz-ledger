@@ -292,6 +292,11 @@
       <div class="stat-card"><div class="label">Open Carryover Debt</div><div class="value danger" id="bizCarryover">—</div></div>
     </div>
 
+    <div id="rentTransferBusinessCard" style="display:none; background:var(--surface-2); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin-bottom:20px; font-family:var(--mono); font-size:0.78rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <span style="color:var(--text-dim);">Personal → Business rent transfer, this month</span>
+      <strong id="rentTransferBusinessValue" style="color:var(--mpesa);">KSh 0 of KSh 8,000</strong>
+    </div>
+
     <section class="panel">
       <h2>Log a week <span class="eyebrow">Step 1–3: raw input, baselines, emergencies</span></h2>
       <form class="entry-form" id="bizForm">
@@ -347,15 +352,59 @@
   <!-- ============ PERSONAL VIEW ============ -->
   <div id="personalView" style="display:none;">
 
+    <div id="offlineBannerPer" style="display:none; background:var(--amber); color:#12180F; padding:10px 14px; border-radius:8px; font-family:var(--mono); font-size:0.78rem; margin-bottom:14px; font-weight:600;"></div>
+
     <div class="stat-grid">
-      <div class="stat-card"><div class="label">This week — Inflow</div><div class="value green" id="perInflow">—</div></div>
-      <div class="stat-card"><div class="label">This week — Outflow</div><div class="value amber" id="perOutflow">—</div></div>
-      <div class="stat-card"><div class="label">Net weekly balance</div><div class="value" id="perNet">—</div></div>
+      <div class="stat-card"><div class="label">This month — Inflow</div><div class="value green" id="perInflow">—</div></div>
+      <div class="stat-card"><div class="label">This month — Outflow</div><div class="value amber" id="perOutflow">—</div></div>
+      <div class="stat-card"><div class="label">Net this month</div><div class="value" id="perNet">—</div></div>
       <div class="stat-card"><div class="label">Cumulative savings</div><div class="value green" id="perCumulative">—</div></div>
     </div>
 
     <section class="panel">
+      <h2>Income target <span class="eyebrow">Total inflow this month vs. phase benchmark</span></h2>
+      <div style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; font-family:var(--mono); font-size:0.72rem; color:var(--text-dim); margin-bottom:6px;">
+          <span>Phase 1 · Years 1–2 · KSh 30,000–50,000/mo</span>
+          <span id="phase1Status"></span>
+        </div>
+        <div style="background:var(--surface-2); border:1px solid var(--line); border-radius:999px; height:14px; overflow:hidden; position:relative;">
+          <div id="phase1Bar" style="height:100%; background:var(--mpesa); width:0%; transition:width .3s;"></div>
+        </div>
+      </div>
+      <div id="phase2Card" style="opacity:0.4;">
+        <div style="display:flex; justify-content:space-between; font-family:var(--mono); font-size:0.72rem; color:var(--text-dim); margin-bottom:6px;">
+          <span>Phase 2 · Years 3–5 · KSh 80,000–100,000+/mo</span>
+          <span id="phase2Status">Locked until Phase 1 reached</span>
+        </div>
+        <div style="background:var(--surface-2); border:1px solid var(--line); border-radius:999px; height:14px; overflow:hidden;">
+          <div id="phase2Bar" style="height:100%; background:var(--text-dim); width:0%; transition:width .3s;"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Monthly budget baseline <span class="eyebrow">Target vs. logged this month</span></h2>
+      <div class="table-wrap">
+        <table id="budgetTable" style="min-width:0;">
+          <thead><tr><th>Line</th><th>Target</th><th>Logged</th><th>Status</th></tr></thead>
+          <tbody id="budgetTbody"></tbody>
+        </table>
+      </div>
+      <div style="display:flex; gap:14px; margin-top:12px; font-family:var(--mono); font-size:0.72rem; flex-wrap:wrap;">
+        <span id="rentTransferChip" class="pill"></span>
+        <span id="emergencyChip" class="pill"></span>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>Log a transaction</h2>
+      <div class="btn-row" style="margin-bottom:14px;">
+        <button class="btn secondary quick-fill-btn" data-qf="living">Living Expenses · 10,000</button>
+        <button class="btn secondary quick-fill-btn" data-qf="rent">Business Rent · 8,000</button>
+        <button class="btn secondary quick-fill-btn" data-qf="mmf">Family MMF · 1,000</button>
+        <button class="btn secondary quick-fill-btn" data-qf="savings">Personal Savings · 1,000</button>
+      </div>
       <form class="entry-form" id="perForm">
         <div class="field"><label>Date</label><input type="date" id="p_date"></div>
         <div class="field"><label>Description</label><input type="text" id="p_desc" placeholder="e.g. Naivas groceries"></div>
@@ -377,6 +426,29 @@
           <label>Category</label>
           <select id="p_category"></select>
         </div>
+        <div class="field" id="p_budgetLineWrap" style="display:none;">
+          <label>Budget line (optional)</label>
+          <select id="p_budget_line">
+            <option value="">— none —</option>
+            <option value="Living Expenses">Living Expenses</option>
+            <option value="Business Rent Transfer">Business Rent Transfer</option>
+            <option value="Emergency Fund">Emergency Fund</option>
+            <option value="Family MMF">Family MMF</option>
+            <option value="Personal Savings">Personal Savings</option>
+            <option value="Buffer">Buffer</option>
+          </select>
+        </div>
+        <div class="field" id="p_assetTagWrap" style="display:none;">
+          <label>Asset tag</label>
+          <select id="p_asset_tag">
+            <option value="">— none —</option>
+            <option value="Family MMF">Family MMF</option>
+            <option value="Dairy Enterprise">Dairy Enterprise</option>
+            <option value="Airbnb/BnBs">Airbnb/BnBs</option>
+            <option value="Company Tenders">Company Tenders</option>
+            <option value="Ranch Acquisition">Ranch Acquisition</option>
+          </select>
+        </div>
       </form>
       <div class="btn-row">
         <button class="btn" id="perSaveBtn">Save transaction</button>
@@ -385,11 +457,11 @@
     </section>
 
     <section class="panel">
-      <h2>Transactions <span class="eyebrow">Grouped by week, most recent first</span></h2>
+      <h2>Transactions <span class="eyebrow">Most recent first</span></h2>
       <div class="table-wrap">
         <table id="perTable">
           <thead>
-            <tr><th>Date</th><th>Description</th><th>Category / Source</th><th>Method</th><th>Amount</th><th></th></tr>
+            <tr><th>Date</th><th>Description</th><th>Category / Source</th><th>Budget / Asset</th><th>Method</th><th>Amount</th><th></th></tr>
           </thead>
           <tbody id="perTbody"></tbody>
         </table>
@@ -410,6 +482,12 @@
         <div class="chart-box">
           <div class="title">Cash-in vs cash-out, per week</div>
           <canvas id="perBarChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-grid" style="margin-top:16px;">
+        <div class="chart-box">
+          <div class="title">Capital allocation by asset tag</div>
+          <canvas id="assetTagChart"></canvas>
         </div>
       </div>
     </section>
@@ -472,7 +550,7 @@ let biz = [];       // business weekly entries
 let per = [];       // personal transactions
 let editingBizId = null;
 let editingPerId = null;
-let bizPie, bizBar, perPie, perBar;
+let bizPie, bizBar, perPie, perBar, assetTagChart;
 
 const WEEK1_SEED = {
   id: "week1-seed",
@@ -508,13 +586,24 @@ function savePendingQueue(q){
 }
 function updatePendingBanner(){
   const banner = document.getElementById('offlineBanner');
-  if(!banner) return;
-  const q = getPendingQueue();
-  if(q.length > 0){
-    banner.style.display = 'block';
-    banner.textContent = `${q.length} week${q.length>1?'s':''} saved offline — will sync automatically once you're back online.`;
-  } else {
-    banner.style.display = 'none';
+  if(banner){
+    const q = getPendingQueue();
+    if(q.length > 0){
+      banner.style.display = 'block';
+      banner.textContent = `${q.length} week${q.length>1?'s':''} saved offline — will sync automatically once you're back online.`;
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+  const bannerPer = document.getElementById('offlineBannerPer');
+  if(bannerPer){
+    const qp = getPendingQueuePer();
+    if(qp.length > 0){
+      bannerPer.style.display = 'block';
+      bannerPer.textContent = `${qp.length} transaction${qp.length>1?'s':''} saved offline — will sync automatically once you're back online.`;
+    } else {
+      bannerPer.style.display = 'none';
+    }
   }
 }
 async function flushPendingQueue(){
@@ -559,11 +648,40 @@ async function loadAll(){
   if(perErr){ console.error('load personal failed', perErr); per = []; }
   else per = (perRows || []).map(t => ({
     id: t.id, date: t.date, description: t.description, amount: Number(t.amount),
-    type: t.type, method: t.method, category: t.category
+    type: t.type, method: t.method, category: t.category,
+    budget_line: t.budget_line || '', asset_tag: t.asset_tag || ''
   }));
 
   updatePendingBanner();
 }
+
+/* ---- offline queue for personal transactions (mirrors business queue) ---- */
+const PENDING_KEY_PER = 'motionz-pending-per-queue';
+function getPendingQueuePer(){
+  try{ return JSON.parse(localStorage.getItem(PENDING_KEY_PER) || '[]'); }catch(e){ return []; }
+}
+function savePendingQueuePer(q){
+  try{ localStorage.setItem(PENDING_KEY_PER, JSON.stringify(q)); }catch(e){ console.error('per queue save failed', e); }
+}
+async function flushPendingQueuePer(){
+  const queue = getPendingQueuePer();
+  if(queue.length === 0) return;
+  const remaining = [];
+  for(const item of queue){
+    const { tempId, ...payload } = item;
+    try{
+      const { error } = await sb.from('personal_transactions').insert([payload]).select();
+      if(error) remaining.push(item);
+    }catch(e){
+      remaining.push(item);
+    }
+  }
+  savePendingQueuePer(remaining);
+  await loadAll();
+  renderPersonal();
+  updatePendingBanner();
+}
+window.addEventListener('online', flushPendingQueuePer);
 
 // Returns {ok, row, error, queued}
 async function insertBizRow(row){
@@ -629,16 +747,44 @@ async function deleteBizRow(id){
   if(error) console.error('delete biz failed', error);
 }
 
+// Returns {ok, row, queued}
 async function insertPerRow(t){
-  const { data, error } = await sb.from('personal_transactions').insert([t]).select();
-  if(error){ console.error('insert personal failed', error); return null; }
-  return { id: data[0].id, ...t };
+  if(!navigator.onLine){
+    const queue = getPendingQueuePer();
+    const tempId = 'pending-' + Date.now();
+    queue.push({ tempId, ...t });
+    savePendingQueuePer(queue);
+    updatePendingBanner();
+    return { ok:true, queued:true, row: { id: tempId, ...t } };
+  }
+  try{
+    const { data, error } = await sb.from('personal_transactions').insert([t]).select();
+    if(error){
+      console.error('insert personal failed', error);
+      const queue = getPendingQueuePer();
+      const tempId = 'pending-' + Date.now();
+      queue.push({ tempId, ...t });
+      savePendingQueuePer(queue);
+      updatePendingBanner();
+      return { ok:true, queued:true, row: { id: tempId, ...t } };
+    }
+    return { ok:true, row: { id: data[0].id, ...t } };
+  }catch(e){
+    console.error('insert personal threw', e);
+    const queue = getPendingQueuePer();
+    const tempId = 'pending-' + Date.now();
+    queue.push({ tempId, ...t });
+    savePendingQueuePer(queue);
+    updatePendingBanner();
+    return { ok:true, queued:true, row: { id: tempId, ...t } };
+  }
 }
 
 async function updatePerRow(t){
   const { error } = await sb.from('personal_transactions').update({
     date: t.date, description: t.description, amount: t.amount,
-    type: t.type, method: t.method, category: t.category
+    type: t.type, method: t.method, category: t.category,
+    budget_line: t.budget_line || null, asset_tag: t.asset_tag || null
   }).eq('id', t.id);
   if(error) console.error('update personal failed', error);
 }
@@ -886,8 +1032,39 @@ function updateCategoryOptions(){
   const sel = document.getElementById('p_category');
   const opts = type === 'inflow' ? PERSONAL_INCOME_CATS : PERSONAL_EXPENSE_CATS;
   sel.innerHTML = opts.map(o=>`<option>${o}</option>`).join('');
+  updateConditionalFields();
 }
 document.getElementById('p_type').addEventListener('change', updateCategoryOptions);
+document.getElementById('p_category').addEventListener('change', updateConditionalFields);
+
+function updateConditionalFields(){
+  const type = document.getElementById('p_type').value;
+  const category = document.getElementById('p_category').value;
+  document.getElementById('p_budgetLineWrap').style.display = (type === 'outflow') ? 'block' : 'none';
+  document.getElementById('p_assetTagWrap').style.display = (type === 'outflow' && category === 'Savings & Investing') ? 'block' : 'none';
+}
+
+const QUICK_FILLS = {
+  living:  { amount: 10000, category: 'Housing & Utilities', budget_line: 'Living Expenses', desc: 'Living expenses' },
+  rent:    { amount: 8000,  category: 'Family & Household',  budget_line: 'Business Rent Transfer', desc: 'Business rent transfer' },
+  mmf:     { amount: 1000,  category: 'Savings & Investing', budget_line: 'Family MMF', asset_tag: 'Family MMF', desc: 'Family MMF contribution' },
+  savings: { amount: 1000,  category: 'Savings & Investing', budget_line: 'Personal Savings', desc: 'Personal savings' }
+};
+document.querySelectorAll('.quick-fill-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const qf = QUICK_FILLS[btn.dataset.qf];
+    document.getElementById('p_type').value = 'outflow';
+    updateCategoryOptions();
+    document.getElementById('p_amount').value = qf.amount;
+    document.getElementById('p_category').value = qf.category;
+    document.getElementById('p_desc').value = qf.desc;
+    updateConditionalFields();
+    document.getElementById('p_budget_line').value = qf.budget_line || '';
+    if(qf.asset_tag) document.getElementById('p_asset_tag').value = qf.asset_tag;
+    document.getElementById('p_date').value = new Date().toISOString().slice(0,10);
+    document.querySelector('#personalView section.panel:nth-of-type(3)')?.scrollIntoView({behavior:'smooth', block:'center'});
+  });
+});
 
 function weekKey(dateStr){
   const d = new Date(dateStr + 'T00:00:00');
@@ -898,6 +1075,20 @@ function weekKey(dateStr){
   monday.setDate(d.getDate() + diff);
   return monday.toISOString().slice(0,10);
 }
+function monthKey(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  if(isNaN(d)) return 'Unknown';
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+const BUDGET_BASELINE = [
+  { line: 'Living Expenses', target: 10000 },
+  { line: 'Business Rent Transfer', target: 8000 },
+  { line: 'Emergency Fund', target: 2000 },
+  { line: 'Family MMF', target: 1000 },
+  { line: 'Personal Savings', target: 1000 },
+  { line: 'Buffer', target: 1000 }
+];
 
 function renderPersonal(){
   const tbody = document.getElementById('perTbody');
@@ -910,10 +1101,14 @@ function renderPersonal(){
     const tr = document.createElement('tr');
     const sign = t.type === 'inflow' ? '+' : '-';
     const color = t.type === 'inflow' ? 'var(--mpesa)' : 'var(--amber)';
+    const tag = t.budget_line || t.asset_tag
+      ? `<span style="color:var(--text-dim); font-size:0.72rem;">${[t.budget_line, t.asset_tag].filter(Boolean).join(' · ')}</span>`
+      : '<span style="color:var(--text-dim);">—</span>';
     tr.innerHTML = `
       <td>${t.date}</td>
-      <td>${t.description}</td>
+      <td>${t.description}${String(t.id).startsWith('pending-') ? '<div style="color:var(--amber); font-size:0.65rem; margin-top:2px;">syncing…</div>' : ''}</td>
       <td>${t.category}</td>
+      <td>${tag}</td>
       <td>${t.method}</td>
       <td style="color:${color}">${sign}${fmt(t.amount)}</td>
       <td class="row-actions">
@@ -931,11 +1126,11 @@ function renderPersonal(){
     btn.addEventListener('click', ()=> deletePer(btn.dataset.pdel));
   });
 
-  // current week stats (most recent week present, or this calendar week)
-  const todayKey = weekKey(new Date().toISOString().slice(0,10));
-  const weekTx = per.filter(t=> weekKey(t.date) === todayKey);
-  const inflow = weekTx.filter(t=>t.type==='inflow').reduce((s,t)=>s+t.amount,0);
-  const outflow = weekTx.filter(t=>t.type==='outflow').reduce((s,t)=>s+t.amount,0);
+  // this-month stats
+  const thisMonthKey = monthKey(new Date().toISOString().slice(0,10));
+  const monthTx = per.filter(t=> monthKey(t.date) === thisMonthKey);
+  const inflow = monthTx.filter(t=>t.type==='inflow').reduce((s,t)=>s+t.amount,0);
+  const outflow = monthTx.filter(t=>t.type==='outflow').reduce((s,t)=>s+t.amount,0);
   const net = inflow - outflow;
   const cumulative = per.reduce((s,t)=> s + (t.type==='inflow' ? t.amount : -t.amount), 0);
 
@@ -945,6 +1140,67 @@ function renderPersonal(){
   netEl.textContent = (net<0?'-':'') + fmt(Math.abs(net));
   netEl.className = 'value ' + (net < 0 ? 'danger' : 'green');
   document.getElementById('perCumulative').textContent = fmt(cumulative);
+
+  // Income target progress (Phase 1: 30k-50k, Phase 2: 80k-100k+)
+  const phase1Pct = Math.min(100, (inflow / 50000) * 100);
+  document.getElementById('phase1Bar').style.width = phase1Pct + '%';
+  const phase1Reached = inflow >= 30000;
+  document.getElementById('phase1Status').textContent = phase1Reached
+    ? `${fmt(inflow)} — target reached ✓`
+    : `${fmt(inflow)} of KSh 30,000–50,000`;
+  document.getElementById('phase1Bar').style.background = phase1Reached ? 'var(--mpesa)' : 'var(--amber)';
+
+  const phase2Card = document.getElementById('phase2Card');
+  const phase2Bar = document.getElementById('phase2Bar');
+  const phase2Status = document.getElementById('phase2Status');
+  if(phase1Reached){
+    phase2Card.style.opacity = '1';
+    const phase2Pct = Math.min(100, (inflow / 100000) * 100);
+    phase2Bar.style.width = phase2Pct + '%';
+    phase2Bar.style.background = inflow >= 80000 ? 'var(--mpesa)' : 'var(--amber)';
+    phase2Status.textContent = `${fmt(inflow)} of KSh 80,000–100,000+`;
+  } else {
+    phase2Card.style.opacity = '0.4';
+    phase2Bar.style.width = '0%';
+    phase2Status.textContent = 'Locked until Phase 1 reached';
+  }
+
+  // Budget baseline table
+  const budgetTbody = document.getElementById('budgetTbody');
+  budgetTbody.innerHTML = '';
+  BUDGET_BASELINE.forEach(b=>{
+    const logged = monthTx.filter(t=> t.type==='outflow' && t.budget_line === b.line).reduce((s,t)=>s+t.amount,0);
+    const pct = b.target > 0 ? logged / b.target : 0;
+    let statusPill;
+    if(logged === 0) statusPill = '<span class="pill bad">Not logged</span>';
+    else if(pct < 1) statusPill = '<span class="pill warn">Partial</span>';
+    else statusPill = '<span class="pill ok">On track</span>';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${b.line}</td><td>${fmt(b.target)}</td><td>${fmt(logged)}</td><td>${statusPill}</td>`;
+    budgetTbody.appendChild(tr);
+  });
+
+  // Overhead transfer indicators
+  const rentLogged = monthTx.some(t=> t.type==='outflow' && t.budget_line === 'Business Rent Transfer');
+  const emergencyLogged = monthTx.some(t=> t.type==='outflow' && t.budget_line === 'Emergency Fund');
+  const rentChip = document.getElementById('rentTransferChip');
+  rentChip.textContent = rentLogged ? 'Business Rent: logged ✓ this month' : 'Business Rent: not yet logged this month';
+  rentChip.className = 'pill ' + (rentLogged ? 'ok' : 'bad');
+  const emergencyChip = document.getElementById('emergencyChip');
+  emergencyChip.textContent = emergencyLogged ? 'Emergency Reserve: logged ✓ this month' : 'Emergency Reserve: not yet logged this month';
+  emergencyChip.className = 'pill ' + (emergencyLogged ? 'ok' : 'bad');
+
+  // Rent transfer card on Business view (owner-only, updated here since only owner ever sees personal data)
+  const rentTotal = monthTx.filter(t=> t.type==='outflow' && t.budget_line === 'Business Rent Transfer').reduce((s,t)=>s+t.amount,0);
+  const rentCard = document.getElementById('rentTransferBusinessCard');
+  if(rentCard){
+    if(currentRole === 'owner'){
+      rentCard.style.display = 'flex';
+      document.getElementById('rentTransferBusinessValue').textContent = `${fmt(rentTotal)} of KSh 8,000`;
+    } else {
+      rentCard.style.display = 'none';
+    }
+  }
 
   renderPerCharts();
 }
@@ -995,6 +1251,28 @@ function renderPerCharts(){
       plugins:{legend:{labels:{color:'#EDEBE0', font:{family:'IBM Plex Mono', size:10}}}}
     }
   });
+
+  // Asset tag distribution (accumulated, all-time)
+  const assetTotals = {};
+  per.filter(t=>t.type==='outflow' && t.asset_tag).forEach(t=>{
+    assetTotals[t.asset_tag] = (assetTotals[t.asset_tag]||0) + t.amount;
+  });
+  const assetCtx = document.getElementById('assetTagChart');
+  if(assetCtx){
+    if(assetTagChart) assetTagChart.destroy();
+    assetTagChart = new Chart(assetCtx, {
+      type:'doughnut',
+      data:{
+        labels: Object.keys(assetTotals).length ? Object.keys(assetTotals) : ['No allocations yet'],
+        datasets:[{
+          data: Object.keys(assetTotals).length ? Object.values(assetTotals) : [1],
+          backgroundColor:['#2FA84F','#E3A23D','#5AC98A','#C97B3D','#1E7A38'],
+          borderColor:'#1B2416', borderWidth:2
+        }]
+      },
+      options:{ plugins:{legend:{labels:{color:'#EDEBE0', font:{family:'IBM Plex Mono', size:10}}}} }
+    });
+  }
 }
 
 document.getElementById('perSaveBtn').addEventListener('click', async ()=>{
@@ -1004,6 +1282,8 @@ document.getElementById('perSaveBtn').addEventListener('click', async ()=>{
   const type = document.getElementById('p_type').value;
   const method = document.getElementById('p_method').value;
   const category = document.getElementById('p_category').value;
+  const budget_line = document.getElementById('p_budget_line').value || null;
+  const asset_tag = document.getElementById('p_asset_tag').value || null;
 
   if(!date || !description || !amount || amount <= 0){
     alert('Please fill in date, description, and a positive amount.');
@@ -1014,14 +1294,14 @@ document.getElementById('perSaveBtn').addEventListener('click', async ()=>{
 
   if(editingPerId){
     const t = per.find(x=>x.id === editingPerId);
-    Object.assign(t, {date, description, amount, type, method, category});
+    Object.assign(t, {date, description, amount, type, method, category, budget_line, asset_tag});
     await updatePerRow(t);
     editingPerId = null;
     document.getElementById('perCancelEdit').style.display = 'none';
     document.getElementById('perSaveBtn').textContent = 'Save transaction';
   } else {
-    const newRow = await insertPerRow({date, description, amount, type, method, category});
-    if(newRow) per.push(newRow);
+    const result = await insertPerRow({date, description, amount, type, method, category, budget_line, asset_tag});
+    if(result.ok) per.push(result.row);
   }
 
   document.getElementById('perSaveBtn').disabled = false;
@@ -1049,6 +1329,9 @@ function openPerEdit(id){
   updateCategoryOptions();
   document.getElementById('p_category').value = t.category;
   document.getElementById('p_method').value = t.method;
+  updateConditionalFields();
+  document.getElementById('p_budget_line').value = t.budget_line || '';
+  document.getElementById('p_asset_tag').value = t.asset_tag || '';
   document.getElementById('perCancelEdit').style.display = 'inline-block';
   document.getElementById('perSaveBtn').textContent = 'Update transaction';
   document.querySelector('#personalView section.panel').scrollIntoView({behavior:'smooth'});
@@ -1116,11 +1399,11 @@ document.getElementById('perExportPdf').addEventListener('click', ()=>{
   doc.text('Generated ' + new Date().toLocaleDateString('en-KE'), 14, 24);
 
   const sorted = [...per].sort((a,b)=> new Date(b.date) - new Date(a.date));
-  const rows = sorted.map(t=>[t.date, t.description, t.category, t.method, (t.type==='inflow'?'+':'-') + fmt(t.amount)]);
+  const rows = sorted.map(t=>[t.date, t.description, t.category, [t.budget_line, t.asset_tag].filter(Boolean).join(' / ') || '—', t.method, (t.type==='inflow'?'+':'-') + fmt(t.amount)]);
 
   doc.autoTable({
     startY: 30,
-    head: [['Date','Description','Category','Method','Amount']],
+    head: [['Date','Description','Category','Budget/Asset','Method','Amount']],
     body: rows,
     styles:{ fontSize:8 },
     headStyles:{ fillColor:[27,36,22] }
@@ -1332,7 +1615,7 @@ async function bootApp(){
   renderPersonal();
   setupRealtimeSync();
   resetIdleTimer();
-  if(navigator.onLine) flushPendingQueue();
+  if(navigator.onLine){ flushPendingQueue(); flushPendingQueuePer(); }
 }
 
 // on page load, check for an existing session (keeps you signed in across visits)
