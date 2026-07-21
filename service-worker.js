@@ -2,8 +2,9 @@
 // Purpose: make the app installable (standalone display mode) and let it
 // open instantly from the home screen. Data itself always comes live from
 // Supabase — this does not cache your ledger data, only the app shell.
-const CACHE_NAME = 'motionz-ledger-shell-v1';
-const SHELL_FILES = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE_NAME = 'motionz-ledger-shell-v2';
+const SHELL_FILES = ['./manifest.json', './icon-192.png', './icon-512.png'];
+const NETWORK_FIRST_FILES = ['./index.html', './'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -22,13 +23,31 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only shell files are served from cache; everything else (Supabase API calls,
-  // CDN scripts) always goes to the network so your data is never stale.
   const url = new URL(event.request.url);
-  const isShellFile = SHELL_FILES.some((f) => url.pathname.endsWith(f.replace('./', '')));
+  const path = url.pathname;
+
+  // index.html: always try the network first so you see updates immediately.
+  // Only fall back to whatever's cached if you're genuinely offline.
+  const isNetworkFirst = NETWORK_FIRST_FILES.some((f) => path.endsWith(f.replace('./', '')) || path === '/' || path.endsWith('/'));
+  if (isNetworkFirst) {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          const resClone = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+          return res;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Icons/manifest change rarely — cache-first is fine and faster for these.
+  const isShellFile = SHELL_FILES.some((f) => path.endsWith(f.replace('./', '')));
   if (isShellFile) {
     event.respondWith(
       caches.match(event.request).then((cached) => cached || fetch(event.request))
     );
   }
 });
+
