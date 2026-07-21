@@ -1,6 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>
+  try{
+    const savedTheme = localStorage.getItem('motionz-theme'); // explicit user override, if any
+    const systemPrefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    const useLight = savedTheme ? savedTheme === 'light' : systemPrefersLight;
+    if(useLight) document.documentElement.setAttribute('data-theme', 'light');
+  }catch(e){}
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
 <title>Motionz Ledger — Cash Command</title>
@@ -33,6 +41,19 @@
     --sans:'IBM Plex Sans',sans-serif;
     --disp:'Space Grotesk',sans-serif;
   }
+  :root[data-theme="light"]{
+    --bg:#F4F7F4;
+    --surface:#FFFFFF;
+    --surface-2:#EEF2ED;
+    --line:#D9E0D6;
+    --mpesa:#1E8E3E;
+    --mpesa-dim:#166B2E;
+    --amber:#B8791E;
+    --danger:#C0392B;
+    --text:#182016;
+    --text-dim:#5C6B57;
+  }
+  html, body{ transition: background-color .2s ease, color .2s ease; }
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
     background:
@@ -268,13 +289,8 @@
         <button id="tabBusinessBtn" role="tab" class="active">Business</button>
       </div>
       <button id="signOutBtn">Sign out</button>
+      <button id="themeToggleBtn" title="Toggle light/dark" style="background:transparent; border:1px solid var(--line); color:var(--text-dim); border-radius:7px; padding:7px 10px; font-size:0.9rem; font-family:var(--mono);">🌙</button>
     </div>
-  </div>
-  <div class="vault-strip">
-    <span class="vault-dot"></span>
-    <span>M-Pesa Vault Protocol —</span>
-    <strong id="vaultAmount">KSh 5,750</strong>
-    <span>(fixed costs) must clear your daily wallet on payout day. Never idle in transaction float.</span>
   </div>
 </header>
 
@@ -282,6 +298,13 @@
 
   <!-- ============ BUSINESS VIEW ============ -->
   <div id="businessView">
+
+    <div class="vault-strip" style="margin-bottom:16px;">
+      <span class="vault-dot"></span>
+      <span>M-Pesa Vault Protocol —</span>
+      <strong id="vaultAmount">KSh 5,750</strong>
+      <span>(fixed costs) must clear your daily wallet on payout day. Never idle in transaction float.</span>
+    </div>
 
     <div id="offlineBanner" style="display:none; background:var(--amber); color:#12180F; padding:10px 14px; border-radius:8px; font-family:var(--mono); font-size:0.78rem; margin-bottom:14px; font-weight:600;"></div>
 
@@ -330,6 +353,7 @@
       </div>
       <div class="btn-row" style="margin-top:14px;">
         <button class="btn secondary" id="bizExportPdf">Download PDF report</button>
+        <button class="btn secondary" id="bizExportCsv">Backup as CSV</button>
       </div>
     </section>
 
@@ -469,6 +493,7 @@
       <div id="perEmpty" class="empty-state" style="display:none;">No transactions logged yet. Add your first one above.</div>
       <div class="btn-row" style="margin-top:14px;">
         <button class="btn secondary" id="perExportPdf">Download PDF report</button>
+        <button class="btn secondary" id="perExportCsv">Backup as CSV</button>
       </div>
     </section>
 
@@ -501,14 +526,13 @@
   surplus (carried debt), or a Food &amp; Tx baseline change while payout was above KSh 1,250.
 </footer>
 
-<!-- Modal for editing -->
+<!-- Modal, reused as a read-only change-history viewer -->
 <div class="modal-backdrop" id="modalBackdrop">
   <div class="modal">
-    <h3 id="modalTitle">Edit entry</h3>
-    <div id="modalBody"></div>
+    <h3 id="modalTitle">Change history</h3>
+    <div id="modalBody" style="font-family:var(--mono); font-size:0.78rem; max-height:50vh; overflow-y:auto;"></div>
     <div class="btn-row" style="margin-top:16px;">
-      <button class="btn" id="modalSave">Save changes</button>
-      <button class="btn secondary" id="modalCancel">Cancel</button>
+      <button class="btn secondary" id="modalCancel" style="width:100%;">Close</button>
     </div>
   </div>
 </div>
@@ -747,6 +771,54 @@ async function deleteBizRow(id){
   if(error) console.error('delete biz failed', error);
 }
 
+async function openHistoryModal(entryId, week){
+  const modal = document.getElementById('modalBackdrop');
+  const body = document.getElementById('modalBody');
+  document.getElementById('modalTitle').textContent = `Change history — ${week}`;
+  body.innerHTML = 'Loading…';
+  modal.classList.add('open');
+
+  const { data, error } = await sb.from('business_entries_history')
+    .select('*').eq('entry_id', entryId).order('changed_at', { ascending: false });
+
+  if(error){
+    body.innerHTML = `<span style="color:var(--danger);">Couldn't load history: ${error.message}</span>`;
+    return;
+  }
+  if(!data || data.length === 0){
+    body.innerHTML = '<span style="color:var(--text-dim);">No edits or deletions recorded for this entry — it\'s exactly as first logged.</span>';
+    return;
+  }
+
+  body.innerHTML = data.map(h=>{
+    const who = h.changed_by_email || 'unknown';
+    const when = new Date(h.changed_at).toLocaleString('en-KE');
+    const action = h.action === 'delete' ? 'Deleted' : 'Edited';
+    let diff = '';
+    if(h.action === 'update' && h.old_data && h.new_data){
+      const fields = ['week','gross','food','fixed','other','note'];
+      const changed = fields.filter(f => String(h.old_data[f]) !== String(h.new_data[f]));
+      diff = changed.map(f => `${f}: ${h.old_data[f]} → ${h.new_data[f]}`).join('<br>');
+    }
+    return `<div style="border-bottom:1px solid var(--line); padding:10px 0;">
+      <div style="color:var(--amber);">${action} by ${who}</div>
+      <div style="color:var(--text-dim); font-size:0.7rem; margin-bottom:6px;">${when}</div>
+      ${diff ? `<div>${diff}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+document.getElementById('modalCancel').addEventListener('click', ()=>{
+  document.getElementById('modalBackdrop').classList.remove('open');
+});
+
+async function toggleLockRow(id, locked){
+  const { error } = await sb.from('business_entries').update({ locked }).eq('id', id);
+  if(error){ console.error('lock toggle failed', error); return false; }
+  const row = biz.find(r=>r.id === id);
+  if(row) row.locked = locked;
+  return true;
+}
+
 // Returns {ok, row, queued}
 async function insertPerRow(t){
   if(!navigator.onLine){
@@ -811,6 +883,9 @@ function calcRow(row){
   return { surplus, safety, opsNet, auditG, baselineBroken, deficit };
 }
 
+function themeColor(varName){
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+}
 function fmt(n){
   const v = Math.round(n);
   return "KSh " + v.toLocaleString('en-KE');
@@ -853,6 +928,8 @@ function renderBusiness(){
       <td>${statusPill}</td>
       <td class="row-actions">
         ${(row.locked || currentRole !== 'owner') ? '' : `<button class="icon-btn" data-edit="${row.id}">Edit</button><button class="icon-btn" data-del="${row.id}">Del</button>`}
+        ${currentRole === 'owner' ? `<button class="icon-btn" data-lock="${row.id}" data-locked="${row.locked}">${row.locked ? 'Unlock' : 'Lock'}</button>` : ''}
+        ${currentRole === 'owner' && !String(row.id).startsWith('pending-') ? `<button class="icon-btn" data-history="${row.id}" data-week="${row.week}">History</button>` : ''}
       </td>
     `;
     tbody.appendChild(tr);
@@ -869,6 +946,19 @@ function renderBusiness(){
   });
   tbody.querySelectorAll('[data-del]').forEach(btn=>{
     btn.addEventListener('click', ()=> deleteBiz(btn.dataset.del));
+  });
+  tbody.querySelectorAll('[data-lock]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.lock;
+      const currentlyLocked = btn.dataset.locked === 'true';
+      if(!currentlyLocked && !confirm('Lock this week? You will need to unlock it again before you can edit or delete it.')) return;
+      btn.disabled = true;
+      await toggleLockRow(id, !currentlyLocked);
+      renderBusiness();
+    });
+  });
+  tbody.querySelectorAll('[data-history]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openHistoryModal(btn.dataset.history, btn.dataset.week));
   });
 
   renderBizCharts();
@@ -898,9 +988,9 @@ function renderBizCharts(){
       labels:['Food & Tx','Fixed Costs','Other/Emergency','Safety Buffer','Ops Net'],
       datasets:[{data:[foodTotal,fixedTotal,otherTotal,safetyTotal,opsTotal],
         backgroundColor:['#E3A23D','#2FA84F','#D65B4A','#5AC98A','#1E7A38'],
-        borderColor:'#1B2416', borderWidth:2}]
+        borderColor:themeColor('--surface'), borderWidth:2}]
     },
-    options:{ plugins:{legend:{labels:{color:'#EDEBE0', font:{family:'IBM Plex Mono', size:10}}}} }
+    options:{ plugins:{legend:{labels:{color:themeColor('--text'), font:{family:'IBM Plex Mono', size:10}}}} }
   });
 
   const barCtx = document.getElementById('bizBarChart');
@@ -916,10 +1006,10 @@ function renderBizCharts(){
     },
     options:{
       scales:{
-        x:{ticks:{color:'#A6AF9B', font:{family:'IBM Plex Mono', size:9}}, grid:{color:'#33422C'}},
-        y:{ticks:{color:'#A6AF9B', font:{family:'IBM Plex Mono', size:9}}, grid:{color:'#33422C'}}
+        x:{ticks:{color:themeColor('--text-dim'), font:{family:'IBM Plex Mono', size:9}}, grid:{color:themeColor('--line')}},
+        y:{ticks:{color:themeColor('--text-dim'), font:{family:'IBM Plex Mono', size:9}}, grid:{color:themeColor('--line')}}
       },
-      plugins:{legend:{labels:{color:'#EDEBE0', font:{family:'IBM Plex Mono', size:10}}}}
+      plugins:{legend:{labels:{color:themeColor('--text'), font:{family:'IBM Plex Mono', size:10}}}}
     }
   });
 }
@@ -940,6 +1030,22 @@ document.getElementById('bizSaveBtn').addEventListener('click', async ()=>{
   if(!loggedByName){
     errEl.textContent = 'Enter your name so this entry can be traced to whoever logged it.';
     return;
+  }
+
+  if(gross < 0 || food < 0 || fixed < 0 || other < 0){
+    errEl.textContent = 'None of these figures can be negative — check for a typo.';
+    return;
+  }
+
+  // Sanity check: flag gross payouts that are wildly off from recent history —
+  // catches typos like an extra zero before they land in the ledger.
+  const recentWeeks = biz.filter(r => !r.locked || r.gross > 0).slice(-4);
+  if(recentWeeks.length >= 2 && !editingBizId){
+    const avg = recentWeeks.reduce((s,r)=>s+r.gross,0) / recentWeeks.length;
+    if(avg > 0 && (gross > avg * 2.5 || (gross < avg * 0.3 && gross > 0))){
+      const proceed = confirm(`This gross payout (${fmt(gross)}) is very different from your recent average (${fmt(avg)}). Save it anyway?`);
+      if(!proceed) return;
+    }
   }
 
   // auto carry-in from previous deficit
@@ -1219,10 +1325,10 @@ function renderPerCharts(){
       datasets:[{
         data: Object.keys(catTotals).length ? Object.values(catTotals) : [1],
         backgroundColor:['#E3A23D','#2FA84F','#D65B4A','#5AC98A','#1E7A38','#8FBF6E','#C97B3D','#4E6B3F'],
-        borderColor:'#1B2416', borderWidth:2
+        borderColor:themeColor('--surface'), borderWidth:2
       }]
     },
-    options:{ plugins:{legend:{labels:{color:'#EDEBE0', font:{family:'IBM Plex Mono', size:10}}}} }
+    options:{ plugins:{legend:{labels:{color:themeColor('--text'), font:{family:'IBM Plex Mono', size:10}}}} }
   });
 
   const weeks = {};
@@ -1245,10 +1351,10 @@ function renderPerCharts(){
     },
     options:{
       scales:{
-        x:{ticks:{color:'#A6AF9B', font:{family:'IBM Plex Mono', size:9}}, grid:{color:'#33422C'}},
-        y:{ticks:{color:'#A6AF9B', font:{family:'IBM Plex Mono', size:9}}, grid:{color:'#33422C'}}
+        x:{ticks:{color:themeColor('--text-dim'), font:{family:'IBM Plex Mono', size:9}}, grid:{color:themeColor('--line')}},
+        y:{ticks:{color:themeColor('--text-dim'), font:{family:'IBM Plex Mono', size:9}}, grid:{color:themeColor('--line')}}
       },
-      plugins:{legend:{labels:{color:'#EDEBE0', font:{family:'IBM Plex Mono', size:10}}}}
+      plugins:{legend:{labels:{color:themeColor('--text'), font:{family:'IBM Plex Mono', size:10}}}}
     }
   });
 
@@ -1267,10 +1373,10 @@ function renderPerCharts(){
         datasets:[{
           data: Object.keys(assetTotals).length ? Object.values(assetTotals) : [1],
           backgroundColor:['#2FA84F','#E3A23D','#5AC98A','#C97B3D','#1E7A38'],
-          borderColor:'#1B2416', borderWidth:2
+          borderColor:themeColor('--surface'), borderWidth:2
         }]
       },
-      options:{ plugins:{legend:{labels:{color:'#EDEBE0', font:{family:'IBM Plex Mono', size:10}}}} }
+      options:{ plugins:{legend:{labels:{color:themeColor('--text'), font:{family:'IBM Plex Mono', size:10}}}} }
     });
   }
 }
@@ -1363,6 +1469,31 @@ tabPer.addEventListener('click', ()=>{
 /* ============================================================
    PDF EXPORT
    ============================================================ */
+function downloadCsv(filename, headers, rows){
+  const escape = (v)=> `"${String(v ?? '').replace(/"/g,'""')}"`;
+  const csv = [headers.map(escape).join(',')]
+    .concat(rows.map(r => r.map(escape).join(',')))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('bizExportCsv').addEventListener('click', ()=>{
+  const headers = ['week','logged_by_name','gross','food','fixed','other','note','locked'];
+  const rows = biz.map(r => [r.week, r.logged_by_name, r.gross, r.food, r.fixed, r.other, r.note, r.locked]);
+  downloadCsv('motionz-business-backup.csv', headers, rows);
+});
+
+document.getElementById('perExportCsv').addEventListener('click', ()=>{
+  const headers = ['date','description','amount','type','method','category','budget_line','asset_tag'];
+  const rows = per.map(t => [t.date, t.description, t.amount, t.type, t.method, t.category, t.budget_line, t.asset_tag]);
+  downloadCsv('motionz-personal-backup.csv', headers, rows);
+});
+
 document.getElementById('bizExportPdf').addEventListener('click', ()=>{
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -1605,6 +1736,45 @@ function resetIdleTimer(){
 ['click','keydown','touchstart','mousemove'].forEach(evt=>{
   window.addEventListener(evt, resetIdleTimer, { passive:true });
 });
+
+/* ============================================================
+   THEME — follows your device's system setting by default.
+   Tapping the toggle sets an explicit override that sticks
+   until you tap it again (it no longer follows the system after that).
+   ============================================================ */
+function applyThemeIcon(){
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  document.getElementById('themeToggleBtn').textContent = isLight ? '☀️' : '🌙';
+}
+document.getElementById('themeToggleBtn').addEventListener('click', ()=>{
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  if(isLight){
+    document.documentElement.removeAttribute('data-theme');
+    try{ localStorage.setItem('motionz-theme', 'dark'); }catch(e){}
+  } else {
+    document.documentElement.setAttribute('data-theme', 'light');
+    try{ localStorage.setItem('motionz-theme', 'light'); }catch(e){}
+  }
+  applyThemeIcon();
+  if(document.getElementById('businessView').style.display !== 'none') renderBizCharts();
+  if(document.getElementById('personalView').style.display !== 'none') renderPerCharts();
+});
+applyThemeIcon();
+
+// If no explicit override has been set, keep following the system theme live —
+// e.g. if the phone switches to dark mode at sunset, the app follows automatically.
+if(window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', (e)=>{
+    let hasOverride = false;
+    try{ hasOverride = !!localStorage.getItem('motionz-theme'); }catch(err){}
+    if(hasOverride) return;
+    if(e.matches) document.documentElement.setAttribute('data-theme', 'light');
+    else document.documentElement.removeAttribute('data-theme');
+    applyThemeIcon();
+    if(document.getElementById('businessView').style.display !== 'none') renderBizCharts();
+    if(document.getElementById('personalView').style.display !== 'none') renderPerCharts();
+  });
+}
 
 async function bootApp(){
   await loadAll();
