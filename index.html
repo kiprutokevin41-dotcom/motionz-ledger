@@ -28,36 +28,44 @@
 <style>
   :root{
     --bg:#12180F;
-    --surface:#1B2416;
-    --surface-2:#222D1C;
-    --line:#33422C;
-    --mpesa:#2FA84F;
-    --mpesa-dim:#1E7A38;
+    --surface:#1C2619;
+    --surface-2:#233020;
+    --line:#2D3D28;
+    --mpesa:#22C55E;
+    --mpesa-dim:#1A9D4B;
+    --mpesa-subtle:rgba(34,197,94,0.15);
     --amber:#E3A23D;
-    --danger:#D65B4A;
-    --text:#EDEBE0;
-    --text-dim:#A6AF9B;
+    --danger:#F87171;
+    --danger-subtle:rgba(248,113,113,0.15);
+    --text:#F2F5F0;
+    --text-dim:#9EB097;
+    --text-muted:#6B7D65;
+    --shadow-card:0 4px 12px rgba(0,0,0,0.3);
     --mono:'IBM Plex Mono',monospace;
     --sans:'IBM Plex Sans',sans-serif;
     --disp:'Space Grotesk',sans-serif;
   }
   :root[data-theme="light"]{
-    --bg:#F4F7F4;
+    --bg:#F4F7F3;
     --surface:#FFFFFF;
-    --surface-2:#EEF2ED;
-    --line:#D9E0D6;
-    --mpesa:#1E8E3E;
-    --mpesa-dim:#166B2E;
+    --surface-2:#F8FAF7;
+    --line:#E1E8DE;
+    --mpesa:#16A34A;
+    --mpesa-dim:#0E7A38;
+    --mpesa-subtle:rgba(22,163,74,0.1);
     --amber:#B8791E;
-    --danger:#C0392B;
-    --text:#182016;
-    --text-dim:#5C6B57;
+    --danger:#DC2626;
+    --danger-subtle:rgba(220,38,38,0.1);
+    --text:#121A10;
+    --text-dim:#586B54;
+    --text-muted:#859881;
+    --shadow-card:0 4px 12px rgba(0,0,0,0.05);
   }
   html, body{ transition: background-color .2s ease, color .2s ease; }
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
     background:
-      radial-gradient(circle at 15% 0%, rgba(47,168,79,0.08), transparent 40%),
+      radial-gradient(circle at 15% 0%, rgba(34,197,94,0.08), transparent 40%),
       var(--bg);
     color:var(--text);
     font-family:var(--sans);
@@ -109,15 +117,18 @@
   }
   .stat-card{
     background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+    box-shadow:var(--shadow-card); transition:background-color .15s ease;
   }
+  .stat-card:hover{background:var(--surface-2);}
   .stat-card .label{font-size:0.66rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); font-family:var(--mono);}
-  .stat-card .value{font-family:var(--mono); font-size:1.35rem; font-weight:600; margin-top:6px;}
+  .stat-card .value{font-family:var(--mono); font-size:1.35rem; font-weight:600; margin-top:6px; font-variant-numeric:tabular-nums; letter-spacing:-0.02em;}
   .stat-card .value.green{color:var(--mpesa);}
   .stat-card .value.amber{color:var(--amber);}
   .stat-card .value.danger{color:var(--danger);}
 
   section.panel{
     background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px 16px; margin-bottom:20px;
+    box-shadow:var(--shadow-card);
   }
   section.panel h2{
     font-family:var(--disp); font-size:1rem; font-weight:600; margin-bottom:14px; display:flex; align-items:center;
@@ -141,31 +152,35 @@
   form.entry-form{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:6px;}
   .field label{display:block; font-size:0.65rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-dim); margin-bottom:5px; font-family:var(--mono);}
   .field input, .field select{
-    width:100%; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:6px;
-    padding:9px 10px; font-size:0.85rem;
+    width:100%; background:var(--surface-2); border:1px solid var(--line); color:var(--text); border-radius:8px;
+    padding:10px 14px; font-size:0.85rem; transition:border-color .15s ease, box-shadow .15s ease;
   }
-  .field input:focus, .field select:focus{border-color:var(--mpesa);}
+  .field input::placeholder{ color:var(--text-muted); }
+  .field input[type="number"]{ font-variant-numeric:tabular-nums; letter-spacing:-0.02em; }
+  .field input:focus, .field select:focus{
+    outline:none; border-color:var(--mpesa); box-shadow:0 0 0 3px var(--mpesa-subtle);
+  }
   .field.full{grid-column:1/-1;}
 
   /* ---- Table (ledger) ---- */
   .table-wrap{overflow-x:auto;}
-  table{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:0.8rem; min-width:640px;}
+  table{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:0.8rem; min-width:640px; font-variant-numeric:tabular-nums; letter-spacing:-0.02em;}
   thead th{
     text-align:left; padding:8px 10px; font-size:0.65rem; text-transform:uppercase; letter-spacing:0.08em;
     color:var(--text-dim); border-bottom:1px solid var(--line); white-space:nowrap; font-weight:500;
   }
   tbody td{padding:9px 10px; border-bottom:1px solid rgba(51,66,44,0.5); white-space:nowrap;}
-  tbody tr:hover{background:rgba(47,168,79,0.05);}
-  tbody tr.flag{background:rgba(214,91,74,0.1);}
-  tbody tr.flag:hover{background:rgba(214,91,74,0.16);}
+  tbody tr:hover{background:var(--mpesa-subtle);}
+  tbody tr.flag{background:var(--danger-subtle);}
+  tbody tr.flag:hover{background:var(--danger-subtle);}
   tbody tr.locked{opacity:0.65;}
   .pill{
     display:inline-block; font-size:0.62rem; padding:3px 8px; border-radius:999px; font-family:var(--mono);
     text-transform:uppercase; letter-spacing:0.06em;
   }
-  .pill.ok{background:rgba(47,168,79,0.18); color:var(--mpesa);}
-  .pill.warn{background:rgba(227,162,61,0.18); color:var(--amber);}
-  .pill.bad{background:rgba(214,91,74,0.18); color:var(--danger);}
+  .pill.ok{background:var(--mpesa-subtle); color:var(--mpesa); border:1px solid var(--mpesa);}
+  .pill.warn{background:rgba(227,162,61,0.15); color:var(--amber); border:1px solid var(--amber);}
+  .pill.bad{background:var(--danger-subtle); color:var(--danger); border:1px solid var(--danger);}
   .row-actions{display:flex; gap:6px;}
   .icon-btn{
     background:transparent; border:1px solid var(--line); color:var(--text-dim); border-radius:5px; padding:4px 8px;
@@ -987,7 +1002,7 @@ function renderBizCharts(){
     data:{
       labels:['Food & Tx','Fixed Costs','Other/Emergency','Safety Buffer','Ops Net'],
       datasets:[{data:[foodTotal,fixedTotal,otherTotal,safetyTotal,opsTotal],
-        backgroundColor:['#E3A23D','#2FA84F','#D65B4A','#5AC98A','#1E7A38'],
+        backgroundColor:['#E3A23D','#22C55E','#F87171','#5AC98A','#1A9D4B'],
         borderColor:themeColor('--surface'), borderWidth:2}]
     },
     options:{ plugins:{legend:{labels:{color:themeColor('--text'), font:{family:'IBM Plex Mono', size:10}}}} }
@@ -1000,8 +1015,8 @@ function renderBizCharts(){
     data:{
       labels: biz.map(r=>r.week),
       datasets:[
-        {label:'Cash In', data: biz.map(r=>r.gross), backgroundColor:'#2FA84F'},
-        {label:'Cash Out', data: biz.map(r=>r.food+r.fixed+r.other), backgroundColor:'#D65B4A'}
+        {label:'Cash In', data: biz.map(r=>r.gross), backgroundColor:'#22C55E'},
+        {label:'Cash Out', data: biz.map(r=>r.food+r.fixed+r.other), backgroundColor:'#F87171'}
       ]
     },
     options:{
@@ -1324,7 +1339,7 @@ function renderPerCharts(){
       labels: Object.keys(catTotals).length ? Object.keys(catTotals) : ['No expenses yet'],
       datasets:[{
         data: Object.keys(catTotals).length ? Object.values(catTotals) : [1],
-        backgroundColor:['#E3A23D','#2FA84F','#D65B4A','#5AC98A','#1E7A38','#8FBF6E','#C97B3D','#4E6B3F'],
+        backgroundColor:['#E3A23D','#22C55E','#F87171','#5AC98A','#1A9D4B','#8FBF6E','#C97B3D','#4E6B3F'],
         borderColor:themeColor('--surface'), borderWidth:2
       }]
     },
@@ -1345,8 +1360,8 @@ function renderPerCharts(){
     data:{
       labels: sortedWeeks.length ? sortedWeeks : ['—'],
       datasets:[
-        {label:'Cash In', data: sortedWeeks.length ? sortedWeeks.map(w=>weeks[w].in) : [0], backgroundColor:'#2FA84F'},
-        {label:'Cash Out', data: sortedWeeks.length ? sortedWeeks.map(w=>weeks[w].out) : [0], backgroundColor:'#D65B4A'}
+        {label:'Cash In', data: sortedWeeks.length ? sortedWeeks.map(w=>weeks[w].in) : [0], backgroundColor:'#22C55E'},
+        {label:'Cash Out', data: sortedWeeks.length ? sortedWeeks.map(w=>weeks[w].out) : [0], backgroundColor:'#F87171'}
       ]
     },
     options:{
@@ -1372,7 +1387,7 @@ function renderPerCharts(){
         labels: Object.keys(assetTotals).length ? Object.keys(assetTotals) : ['No allocations yet'],
         datasets:[{
           data: Object.keys(assetTotals).length ? Object.values(assetTotals) : [1],
-          backgroundColor:['#2FA84F','#E3A23D','#5AC98A','#C97B3D','#1E7A38'],
+          backgroundColor:['#22C55E','#E3A23D','#5AC98A','#C97B3D','#1A9D4B'],
           borderColor:themeColor('--surface'), borderWidth:2
         }]
       },
