@@ -1626,29 +1626,39 @@ document.getElementById('authSubmitBtn').addEventListener('click', async ()=>{
 
   document.getElementById('authSubmitBtn').disabled = true;
 
-  if(authMode === 'signin'){
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if(error) errEl.textContent = error.message;
-  } else if(authMode === 'signup'){
-    const { data, error } = await sb.auth.signUp({ email, password });
-    if(error) errEl.textContent = error.message;
-    else if(!data.session) succEl.textContent = 'Account created. Check email to confirm, then sign in. Tell the administrator to grant this account access.';
-    else succEl.textContent = 'Account created. Ask the administrator to grant this account access before it can see any data.';
-  } else if(authMode === 'forgot'){
-    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
-    if(error) errEl.textContent = error.message;
-    else succEl.textContent = 'Reset link sent — check your email.';
-  } else if(authMode === 'update_password'){
-    const { error } = await sb.auth.updateUser({ password });
-    if(error){ errEl.textContent = error.message; }
-    else { succEl.textContent = 'Password updated.'; setTimeout(()=>setAuthMode('signin'), 1500); }
+  try{
+    if(authMode === 'signin'){
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if(error) errEl.textContent = error.message;
+    } else if(authMode === 'signup'){
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if(error) errEl.textContent = error.message;
+      else if(!data.session) succEl.textContent = 'Account created. Check email to confirm, then sign in. Tell the administrator to grant this account access.';
+      else succEl.textContent = 'Account created. Ask the administrator to grant this account access before it can see any data.';
+    } else if(authMode === 'forgot'){
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+      if(error) errEl.textContent = error.message;
+      else succEl.textContent = 'Reset link sent — check your email.';
+    } else if(authMode === 'update_password'){
+      const { error } = await sb.auth.updateUser({ password });
+      if(error){ errEl.textContent = error.message; }
+      else { succEl.textContent = 'Password updated.'; setTimeout(()=>setAuthMode('signin'), 1500); }
+    }
+  }catch(e){
+    console.error('auth action threw', e);
+    errEl.textContent = 'Something went wrong reaching the server. Check your connection and try again.';
+  }finally{
+    // Always re-enable, no matter what happened above — a stuck disabled
+    // button with no way to retry is worse than a plain error message.
+    document.getElementById('authSubmitBtn').disabled = false;
   }
-
-  document.getElementById('authSubmitBtn').disabled = false;
 });
 
 document.getElementById('signOutBtn').addEventListener('click', async ()=>{
   if(sb) await sb.auth.signOut();
+  // Force a genuinely clean slate before the next sign-in, rather than
+  // trusting in-memory state to reset itself correctly after switching accounts.
+  window.location.reload();
 });
 
 async function fetchRole(userId){
@@ -1788,22 +1798,18 @@ async function bootApp(){
   if(navigator.onLine){ flushPendingQueue(); flushPendingQueuePer(); }
 }
 
-// on page load, check for an existing session (keeps you signed in across visits)
-(async ()=>{
-  if(!sb){
-    document.getElementById('authScreen').style.display = 'flex';
-    document.getElementById('authError').textContent =
-      'No Supabase project connected yet. Open this file in a text editor, find SUPABASE_URL and SUPABASE_ANON_KEY near the top of the <script> block, and paste in your real values from Settings > API in your Supabase project.';
-    document.getElementById('authSubmitBtn').disabled = true;
-    document.getElementById('authToggleBtn').disabled = true;
-    return;
-  }
-  const { data } = await sb.auth.getSession();
-  if(!data.session){
-    document.getElementById('authScreen').style.display = 'flex';
-  }
-  // if a session exists, onAuthStateChange fires automatically and boots the app
-})();
+// on page load: if Supabase isn't configured at all, say so.
+// Otherwise, trust the onAuthStateChange listener alone to determine
+// signed-in vs signed-out — calling getSession() here too used to race
+// with it over refreshing a near-expiry token, which is what caused the
+// brief dashboard flash before being kicked back to the login screen.
+if(!sb){
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('authError').textContent =
+    'No Supabase project connected yet. Open this file in a text editor, find SUPABASE_URL and SUPABASE_ANON_KEY near the top of the <script> block, and paste in your real values from Settings > API in your Supabase project.';
+  document.getElementById('authSubmitBtn').disabled = true;
+  document.getElementById('authToggleBtn').disabled = true;
+}
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
