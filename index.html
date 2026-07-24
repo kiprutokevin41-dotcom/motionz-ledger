@@ -80,7 +80,7 @@
 
   /* ---- Header / vault strip ---- */
   header.top{
-    background:linear-gradient(180deg, #16200F, #12180F 90%);
+    background:linear-gradient(180deg, var(--surface), var(--bg) 90%);
     border-bottom:1px solid var(--line);
     padding:18px 20px 14px;
     position:sticky; top:0; z-index:50;
@@ -1845,14 +1845,15 @@ async function fetchRole(userId){
 
 function applyRoleGating(role){
   const personalTab = document.getElementById('tabPersonalBtn');
+  const businessTab = document.getElementById('tabBusinessBtn');
   if(role === 'owner'){
     personalTab.style.display = 'inline-block';
+    businessTab.style.display = 'inline-block';
   } else {
     personalTab.style.display = 'none';
-    // force Business view if somehow on Personal
-    document.getElementById('personalView').style.display = 'none';
-    document.getElementById('businessView').style.display = 'block';
-    document.getElementById('tabBusinessBtn').classList.add('active');
+    businessTab.style.display = 'none';
+    // staff is locked to Operations only
+    showTab('operations');
   }
 }
 
@@ -1954,8 +1955,8 @@ document.getElementById('themeToggleBtn').addEventListener('click', ()=>{
     try{ localStorage.setItem('motionz-theme', 'light'); }catch(e){}
   }
   applyThemeIcon();
-  if(document.getElementById('businessView').style.display !== 'none') renderBizCharts();
-  if(document.getElementById('personalView').style.display !== 'none') renderPerCharts();
+  renderBizCharts();
+  renderPerCharts();
 });
 applyThemeIcon();
 
@@ -1969,8 +1970,8 @@ if(window.matchMedia){
     if(e.matches) document.documentElement.setAttribute('data-theme', 'light');
     else document.documentElement.removeAttribute('data-theme');
     applyThemeIcon();
-    if(document.getElementById('businessView').style.display !== 'none') renderBizCharts();
-    if(document.getElementById('personalView').style.display !== 'none') renderPerCharts();
+    renderBizCharts();
+    renderPerCharts();
   });
 }
 
