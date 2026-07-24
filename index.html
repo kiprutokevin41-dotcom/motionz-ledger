@@ -302,6 +302,7 @@
       <div class="toggle-switch" role="tablist" aria-label="Switch view">
         <button id="tabPersonalBtn" role="tab">Personal</button>
         <button id="tabBusinessBtn" role="tab" class="active">Business</button>
+        <button id="tabOperationsBtn" role="tab">Operations</button>
       </div>
       <button id="signOutBtn">Sign out</button>
       <button id="themeToggleBtn" title="Toggle light/dark" style="background:transparent; border:1px solid var(--line); color:var(--text-dim); border-radius:7px; padding:7px 10px; font-size:0.9rem; font-family:var(--mono);">🌙</button>
@@ -389,6 +390,57 @@
   </div>
 
   <!-- ============ PERSONAL VIEW ============ -->
+  <!-- ============ OPERATIONS VIEW ============ -->
+  <div id="operationsView" style="display:none;">
+
+    <section class="panel">
+      <h2>Current status <span class="eyebrow" id="opsLastUpdated">—</span></h2>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="label">Power</div><div class="value" id="opsPowerNow">—</div></div>
+        <div class="stat-card"><div class="label">Wifi</div><div class="value" id="opsWifiNow">—</div></div>
+        <div class="stat-card"><div class="label">Chargers Active</div><div class="value green" id="opsChargersNow">—</div></div>
+        <div class="stat-card"><div class="label">Batteries Ready</div><div class="value green" id="opsBatteriesNow">—</div></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Log a check-in</h2>
+      <form class="entry-form" id="opsForm">
+        <div class="field"><label>Your name</label><input type="text" id="ops_name" placeholder="e.g. Wangechi, night shift"></div>
+        <div class="field">
+          <label>Power status</label>
+          <select id="ops_power">
+            <option>Mains Grid</option><option>Backup Generator</option><option>Grid Down</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Wifi status</label>
+          <select id="ops_wifi"><option>Online</option><option>Offline</option></select>
+        </div>
+        <div class="field"><label>Chargers active</label><input type="number" id="ops_chargers" min="0" step="1" value="0"></div>
+        <div class="field"><label>Batteries ready</label><input type="number" id="ops_batteries" min="0" step="1" value="0"></div>
+        <div class="field full"><label>Notes / issues</label><input type="text" id="ops_notes" placeholder="e.g. Battery #3 not charging"></div>
+      </form>
+      <div id="opsFormError" style="color:var(--danger); font-family:var(--mono); font-size:0.78rem; margin-bottom:8px; min-height:1em;"></div>
+      <div class="btn-row">
+        <button class="btn" id="opsSaveBtn">Log check-in</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Recent check-ins <span class="eyebrow">Most recent first</span></h2>
+      <div class="table-wrap">
+        <table id="opsTable">
+          <thead>
+            <tr><th>When</th><th>Logged by</th><th>Power</th><th>Wifi</th><th>Chargers</th><th>Batteries</th><th>Notes</th><th></th></tr>
+          </thead>
+          <tbody id="opsTbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
   <div id="personalView" style="display:none;">
 
     <div id="offlineBannerPer" style="display:none; background:var(--amber); color:#12180F; padding:10px 14px; border-radius:8px; font-family:var(--mono); font-size:0.78rem; margin-bottom:14px; font-weight:600;"></div>
@@ -587,6 +639,7 @@ const PERSONAL_INCOME_CATS = [
 
 let biz = [];       // business weekly entries
 let per = [];       // personal transactions
+let ops = [];       // station operations check-ins
 let editingBizId = null;
 let editingPerId = null;
 let bizPie, bizBar, perPie, perBar, assetTagChart;
@@ -689,6 +742,15 @@ async function loadAll(){
     id: t.id, date: t.date, description: t.description, amount: Number(t.amount),
     type: t.type, method: t.method, category: t.category,
     budget_line: t.budget_line || '', asset_tag: t.asset_tag || ''
+  }));
+
+  const { data: opsRows, error: opsErr } = await sb
+    .from('station_status_log').select('*').order('created_at', { ascending: false });
+  if(opsErr){ console.error('load ops failed', opsErr); ops = []; }
+  else ops = (opsRows || []).map(o => ({
+    id: o.id, logged_by_name: o.logged_by_name || '', power_status: o.power_status,
+    wifi_status: o.wifi_status, chargers_active: Number(o.chargers_active),
+    batteries_ready: Number(o.batteries_ready), notes: o.notes || '', created_at: o.created_at
   }));
 
   updatePendingBanner();
@@ -880,6 +942,101 @@ async function deletePerRow(id){
   const { error } = await sb.from('personal_transactions').delete().eq('id', id);
   if(error) console.error('delete personal failed', error);
 }
+
+/* ---- station operations check-in CRUD ---- */
+async function insertOpsRow(row){
+  const { data, error } = await sb.from('station_status_log').insert([row]).select();
+  if(error){ console.error('insert ops failed', error); return { ok:false, error: error.message }; }
+  return { ok:true, row: {
+    id: data[0].id, logged_by_name: data[0].logged_by_name, power_status: data[0].power_status,
+    wifi_status: data[0].wifi_status, chargers_active: Number(data[0].chargers_active),
+    batteries_ready: Number(data[0].batteries_ready), notes: data[0].notes || '', created_at: data[0].created_at
+  }};
+}
+async function deleteOpsRow(id){
+  const { error } = await sb.from('station_status_log').delete().eq('id', id);
+  if(error) console.error('delete ops failed', error);
+}
+
+function renderOperations(){
+  const latest = ops[0]; // already sorted newest-first from loadAll
+  if(latest){
+    document.getElementById('opsPowerNow').textContent = latest.power_status;
+    document.getElementById('opsWifiNow').textContent = latest.wifi_status;
+    document.getElementById('opsChargersNow').textContent = latest.chargers_active;
+    document.getElementById('opsBatteriesNow').textContent = latest.batteries_ready;
+    document.getElementById('opsLastUpdated').textContent =
+      `Last update: ${new Date(latest.created_at).toLocaleString('en-KE')} by ${latest.logged_by_name || 'unknown'}`;
+  } else {
+    document.getElementById('opsPowerNow').textContent = '—';
+    document.getElementById('opsWifiNow').textContent = '—';
+    document.getElementById('opsChargersNow').textContent = '—';
+    document.getElementById('opsBatteriesNow').textContent = '—';
+    document.getElementById('opsLastUpdated').textContent = 'No check-ins logged yet';
+  }
+
+  const tbody = document.getElementById('opsTbody');
+  tbody.innerHTML = '';
+  ops.forEach(o=>{
+    const tr = document.createElement('tr');
+    if(o.power_status === 'Grid Down' || o.wifi_status === 'Offline') tr.classList.add('flag');
+    tr.innerHTML = `
+      <td>${new Date(o.created_at).toLocaleString('en-KE')}</td>
+      <td>${o.logged_by_name || '—'}</td>
+      <td>${o.power_status}</td>
+      <td>${o.wifi_status}</td>
+      <td>${o.chargers_active}</td>
+      <td>${o.batteries_ready}</td>
+      <td>${o.notes || '<span style="color:var(--text-dim);">—</span>'}</td>
+      <td class="row-actions">
+        ${currentRole === 'owner' ? `<button class="icon-btn" data-opsdel="${o.id}">Del</button>` : ''}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('[data-opsdel]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Delete this check-in entry?')) return;
+      await deleteOpsRow(btn.dataset.opsdel);
+      ops = ops.filter(o=>o.id !== btn.dataset.opsdel);
+      renderOperations();
+    });
+  });
+}
+
+document.getElementById('opsSaveBtn').addEventListener('click', async ()=>{
+  const name = document.getElementById('ops_name').value.trim();
+  const power_status = document.getElementById('ops_power').value;
+  const wifi_status = document.getElementById('ops_wifi').value;
+  const chargers_active = parseInt(document.getElementById('ops_chargers').value, 10) || 0;
+  const batteries_ready = parseInt(document.getElementById('ops_batteries').value, 10) || 0;
+  const notes = document.getElementById('ops_notes').value.trim();
+  const errEl = document.getElementById('opsFormError');
+  errEl.textContent = '';
+
+  if(!name){
+    errEl.textContent = 'Enter your name so this check-in can be traced to whoever logged it.';
+    return;
+  }
+  if(chargers_active < 0 || batteries_ready < 0){
+    errEl.textContent = 'These figures cannot be negative.';
+    return;
+  }
+
+  document.getElementById('opsSaveBtn').disabled = true;
+  const result = await insertOpsRow({ logged_by_name: name, power_status, wifi_status, chargers_active, batteries_ready, notes });
+  document.getElementById('opsSaveBtn').disabled = false;
+
+  if(!result.ok){
+    errEl.textContent = result.error;
+    return;
+  }
+  ops.unshift(result.row);
+  document.getElementById('ops_notes').value = '';
+  document.getElementById('ops_chargers').value = 0;
+  document.getElementById('ops_batteries').value = 0;
+  renderOperations();
+});
 
 /* ============================================================
    BUSINESS CALC — Col E/F/G per ruleset, G rebuilt as live audit
@@ -1470,16 +1627,20 @@ async function deletePer(id){
    ============================================================ */
 const tabBiz = document.getElementById('tabBusinessBtn');
 const tabPer = document.getElementById('tabPersonalBtn');
-tabBiz.addEventListener('click', ()=>{
-  tabBiz.classList.add('active'); tabPer.classList.remove('active');
-  document.getElementById('businessView').style.display = 'block';
-  document.getElementById('personalView').style.display = 'none';
-});
-tabPer.addEventListener('click', ()=>{
-  tabPer.classList.add('active'); tabBiz.classList.remove('active');
-  document.getElementById('personalView').style.display = 'block';
+const tabOps = document.getElementById('tabOperationsBtn');
+
+function showTab(which){
+  [tabBiz, tabPer, tabOps].forEach(b=>b.classList.remove('active'));
   document.getElementById('businessView').style.display = 'none';
-});
+  document.getElementById('personalView').style.display = 'none';
+  document.getElementById('operationsView').style.display = 'none';
+  if(which === 'business'){ tabBiz.classList.add('active'); document.getElementById('businessView').style.display = 'block'; }
+  else if(which === 'personal'){ tabPer.classList.add('active'); document.getElementById('personalView').style.display = 'block'; }
+  else if(which === 'operations'){ tabOps.classList.add('active'); document.getElementById('operationsView').style.display = 'block'; }
+}
+tabBiz.addEventListener('click', ()=> showTab('business'));
+tabPer.addEventListener('click', ()=> showTab('personal'));
+tabOps.addEventListener('click', ()=> showTab('operations'));
 
 /* ============================================================
    PDF EXPORT
@@ -1696,7 +1857,10 @@ function applyRoleGating(role){
 }
 
 if(sb){
+  let authGeneration = 0;
   sb.auth.onAuthStateChange(async (event, session)=>{
+    const myGen = ++authGeneration;
+
     if(event === 'PASSWORD_RECOVERY'){
       document.getElementById('authScreen').style.display = 'flex';
       document.getElementById('appShell').style.display = 'none';
@@ -1708,6 +1872,10 @@ if(sb){
       if(authMode === 'update_password') return; // let them finish setting the new password first
 
       currentRole = await fetchRole(currentUser.id);
+      // A newer auth event already fired while we were waiting on that lookup —
+      // this one is stale. Don't touch the screen; the newer event already did.
+      if(myGen !== authGeneration) return;
+
       if(!currentRole){
         // No profile row yet: access is denied by default until the administrator assigns a role.
         await sb.auth.signOut();
@@ -1721,6 +1889,7 @@ if(sb){
       document.getElementById('appShell').style.display = 'block';
       applyRoleGating(currentRole);
       await bootApp();
+      if(myGen !== authGeneration) return; // superseded mid-boot; a sign-out will have already reset the screen
     } else {
       currentUser = null; currentRole = null;
       clearTimeout(idleTimer);
@@ -1741,6 +1910,10 @@ function setupRealtimeSync(){
     .on('postgres_changes', { event: '*', schema: 'public', table: 'business_entries' }, async (payload)=>{
       await loadAll();
       renderBusiness();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'station_status_log' }, async (payload)=>{
+      await loadAll();
+      renderOperations();
     })
     .subscribe();
 }
@@ -1808,6 +1981,7 @@ async function bootApp(){
   updateCategoryOptions();
   renderBusiness();
   renderPersonal();
+  renderOperations();
   setupRealtimeSync();
   resetIdleTimer();
   if(navigator.onLine){ flushPendingQueue(); flushPendingQueuePer(); }
