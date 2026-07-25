@@ -405,8 +405,12 @@
       <div class="stat-grid">
         <div class="stat-card"><div class="label">Batteries Ready</div><div class="value green" id="opsReadyNow">—</div></div>
         <div class="stat-card"><div class="label">Batteries Charging</div><div class="value amber" id="opsChargingNow">—</div></div>
+        <div class="stat-card"><div class="label">Batteries Out (with customers)</div><div class="value" id="opsOutNow">—</div></div>
         <div class="stat-card"><div class="label">Power</div><div class="value" id="opsPowerNow">—</div></div>
         <div class="stat-card"><div class="label">Wifi</div><div class="value" id="opsWifiNow">—</div></div>
+      </div>
+      <div style="margin-top:10px; font-family:var(--mono); font-size:0.7rem; color:var(--text-dim);">
+        Station total: <strong style="color:var(--text-dim);">5 batteries</strong> · <strong style="color:var(--text-dim);">2 chargers</strong>
       </div>
     </section>
 
@@ -447,6 +451,17 @@
       </div>
       <div class="btn-row" style="margin-top:10px;">
         <button class="btn secondary" id="opsAdjustBtn">Apply correction</button>
+      </div>
+    </section>
+
+    <section class="panel" id="opsOwnerInsights" style="display:none;">
+      <h2>Owner insights <span class="eyebrow">Not shown on the staff login</span></h2>
+      <div id="opsLowInventoryAlert" style="display:none; padding:10px 14px; border-radius:8px; font-family:var(--mono); font-size:0.8rem; font-weight:600; margin-bottom:14px;"></div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="label">Power outage time, this week</div><div class="value amber" id="opsDowntimePower">—</div></div>
+        <div class="stat-card"><div class="label">Wifi offline time, this week</div><div class="value amber" id="opsDowntimeWifi">—</div></div>
+        <div class="stat-card"><div class="label">Avg. charge cycle</div><div class="value" id="opsAvgChargeCycle">—</div></div>
+        <div class="stat-card"><div class="label">Revenue per swap, current week</div><div class="value green" id="opsRevenuePerSwap">—</div></div>
       </div>
     </section>
 
@@ -659,6 +674,11 @@ let biz = [];       // business weekly entries
 let per = [];       // personal transactions
 let ops = [];       // station operations action log (most recent first)
 let stationStatus = { batteries_ready:0, batteries_charging:0, power_status:'Grid Power', wifi_status:'Online', updated_at:null, updated_by_name:'' };
+
+// Physical station constants — update these two numbers if the station's
+// actual inventory changes (more batteries bought, another charger installed).
+const TOTAL_BATTERIES = 5;
+const TOTAL_CHARGERS = 2;
 let editingBizId = null;
 let editingPerId = null;
 let bizPie, bizBar, perPie, perBar, assetTagChart;
@@ -683,7 +703,7 @@ function rowFromDb(r){
   return {
     id: r.id, week: r.week, gross: Number(r.gross), food: Number(r.food),
     fixed: Number(r.fixed), other: Number(r.other), note: r.note || '', locked: r.locked,
-    logged_by_name: r.logged_by_name || ''
+    logged_by_name: r.logged_by_name || '', created_at: r.created_at
   };
 }
 
@@ -1012,6 +1032,14 @@ document.getElementById('opsIssueBtn').addEventListener('click', async ()=>{
 });
 
 document.getElementById('opsStartChargeBtn').addEventListener('click', async ()=>{
+  if(stationStatus.batteries_charging >= TOTAL_CHARGERS){
+    document.getElementById('opsFormError').textContent = `Both chargers are already in use (${TOTAL_CHARGERS}/${TOTAL_CHARGERS}).`;
+    return;
+  }
+  if(stationStatus.batteries_ready + stationStatus.batteries_charging + 1 > TOTAL_BATTERIES){
+    document.getElementById('opsFormError').textContent = `That would exceed the station's total of ${TOTAL_BATTERIES} batteries — check the counts before continuing.`;
+    return;
+  }
   await applyOpsAction({
     action: 'Charging Started', detail: 'Started charging a battery',
     statusPatch: { batteries_charging: stationStatus.batteries_charging + 1 }
@@ -1056,6 +1084,14 @@ document.getElementById('opsAdjustBtn').addEventListener('click', async ()=>{
     document.getElementById('opsFormError').textContent = 'Enter valid, non-negative numbers for both counts.';
     return;
   }
+  if(chargingVal > TOTAL_CHARGERS){
+    document.getElementById('opsFormError').textContent = `Only ${TOTAL_CHARGERS} chargers exist at this station — Charging can't exceed ${TOTAL_CHARGERS}.`;
+    return;
+  }
+  if(readyVal + chargingVal > TOTAL_BATTERIES){
+    document.getElementById('opsFormError').textContent = `Ready + Charging can't exceed the station's total of ${TOTAL_BATTERIES} batteries.`;
+    return;
+  }
   if(!confirm(`Manually set Batteries Ready to ${readyVal} and Batteries Charging to ${chargingVal}? This overrides the automatic count.`)) return;
   await applyOpsAction({
     action: 'Manual Adjustment', detail: `Ready set to ${readyVal}, Charging set to ${chargingVal} (manual correction)`,
@@ -1066,6 +1102,8 @@ document.getElementById('opsAdjustBtn').addEventListener('click', async ()=>{
 function renderOperations(){
   document.getElementById('opsReadyNow').textContent = stationStatus.batteries_ready;
   document.getElementById('opsChargingNow').textContent = stationStatus.batteries_charging;
+  const out = TOTAL_BATTERIES - stationStatus.batteries_ready - stationStatus.batteries_charging;
+  document.getElementById('opsOutNow').textContent = out;
   document.getElementById('opsPowerNow').textContent = stationStatus.power_status;
   document.getElementById('opsWifiNow').textContent = stationStatus.wifi_status;
   document.getElementById('opsLastUpdated').textContent = stationStatus.updated_at
@@ -1083,6 +1121,16 @@ function renderOperations(){
   const manualPanel = document.getElementById('opsManualAdjustPanel');
   if(manualPanel) manualPanel.style.display = (currentRole === 'owner') ? 'block' : 'none';
 
+  const insightsPanel = document.getElementById('opsOwnerInsights');
+  if(insightsPanel){
+    if(currentRole === 'owner'){
+      insightsPanel.style.display = 'block';
+      renderOwnerInsights();
+    } else {
+      insightsPanel.style.display = 'none';
+    }
+  }
+
   const tbody = document.getElementById('opsTbody');
   tbody.innerHTML = '';
   ops.forEach(o=>{
@@ -1095,6 +1143,90 @@ function renderOperations(){
     `;
     tbody.appendChild(tr);
   });
+}
+
+function formatDuration(ms){
+  if(ms < 0) ms = 0;
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if(hours === 0) return `${minutes}m`;
+  return `${hours}h ${minutes}m`;
+}
+
+function renderOwnerInsights(){
+  // ---- 1. Low-inventory alert ----
+  const alertEl = document.getElementById('opsLowInventoryAlert');
+  if(stationStatus.batteries_ready === 0){
+    alertEl.style.display = 'block';
+    alertEl.style.background = 'var(--danger-subtle)'; alertEl.style.color = 'var(--danger)'; alertEl.style.border = '1px solid var(--danger)';
+    alertEl.textContent = '⚠ No batteries currently ready to issue.';
+  } else if(stationStatus.batteries_ready === 1){
+    alertEl.style.display = 'block';
+    alertEl.style.background = 'rgba(227,162,61,0.15)'; alertEl.style.color = 'var(--amber)'; alertEl.style.border = '1px solid var(--amber)';
+    alertEl.textContent = '⚠ Only 1 battery ready — running low.';
+  } else {
+    alertEl.style.display = 'none';
+  }
+
+  const sortedOps = [...ops].sort((a,b)=> new Date(a.created_at) - new Date(b.created_at));
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7*24*60*60*1000);
+
+  // ---- 2. Downtime tracking (Power Outage / Wifi Offline), last 7 days ----
+  function computeDowntime(actionType, badValue){
+    let totalMs = 0;
+    let downSince = null;
+    sortedOps.filter(o=>o.action === actionType).forEach(o=>{
+      const isBad = o.detail && o.detail.includes(badValue);
+      const t = new Date(o.created_at);
+      if(isBad && !downSince){
+        downSince = t;
+      } else if(!isBad && downSince){
+        const from = downSince > weekAgo ? downSince : weekAgo;
+        if(t > from) totalMs += (t - from);
+        downSince = null;
+      }
+    });
+    if(downSince){ // still down right now
+      const from = downSince > weekAgo ? downSince : weekAgo;
+      totalMs += (now - from);
+    }
+    return totalMs;
+  }
+  document.getElementById('opsDowntimePower').textContent = formatDuration(computeDowntime('Power Status Changed', 'Power Outage'));
+  document.getElementById('opsDowntimeWifi').textContent = formatDuration(computeDowntime('Wifi Status Changed', 'Offline'));
+
+  // ---- 3. Average charge-cycle time (FIFO pairing of Start/Stop, all logged history) ----
+  const startQueue = [];
+  const durations = [];
+  sortedOps.forEach(o=>{
+    if(o.action === 'Charging Started') startQueue.push(new Date(o.created_at));
+    else if(o.action === 'Charging Completed' && startQueue.length > 0){
+      const start = startQueue.shift();
+      durations.push(new Date(o.created_at) - start);
+    }
+  });
+  document.getElementById('opsAvgChargeCycle').textContent = durations.length
+    ? formatDuration(durations.reduce((s,d)=>s+d,0) / durations.length) + ` (${durations.length} cycle${durations.length>1?'s':''})`
+    : 'No completed cycles yet';
+
+  // ---- 4. Revenue per swap, current week in progress ----
+  // Approximation: gross payout of the most recent logged week, divided by
+  // "Battery Issued" actions logged since that week's row was created.
+  const latestWeek = biz.length ? biz[biz.length - 1] : null;
+  const revenueEl = document.getElementById('opsRevenuePerSwap');
+  if(!latestWeek){
+    revenueEl.textContent = 'No weeks logged yet';
+  } else {
+    const sinceTime = latestWeek.created_at ? new Date(latestWeek.created_at) : null;
+    const swapsThisPeriod = sinceTime
+      ? ops.filter(o => o.action === 'Battery Issued' && new Date(o.created_at) > sinceTime).length
+      : 0;
+    revenueEl.textContent = swapsThisPeriod > 0
+      ? `${fmt(latestWeek.gross / swapsThisPeriod)} (${swapsThisPeriod} swap${swapsThisPeriod>1?'s':''} since ${latestWeek.week})`
+      : `No swaps logged since ${latestWeek.week}`;
+  }
 }
 
 /* ============================================================
