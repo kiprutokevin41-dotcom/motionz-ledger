@@ -120,6 +120,7 @@
     box-shadow:var(--shadow-card); transition:background-color .15s ease;
   }
   .stat-card:hover{background:var(--surface-2);}
+  .stat-card.flag-card{border-color:var(--danger); background:var(--danger-subtle);}
   .stat-card .label{font-size:0.66rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); font-family:var(--mono);}
   .stat-card .value{font-family:var(--mono); font-size:1.35rem; font-weight:600; margin-top:6px; font-variant-numeric:tabular-nums; letter-spacing:-0.02em;}
   .stat-card .value.green{color:var(--mpesa);}
@@ -400,45 +401,61 @@
   <div id="operationsView" style="display:none;">
 
     <section class="panel">
-      <h2>Current status <span class="eyebrow" id="opsLastUpdated">—</span></h2>
+      <h2>Station status <span class="eyebrow" id="opsLastUpdated">—</span></h2>
       <div class="stat-grid">
+        <div class="stat-card"><div class="label">Batteries Ready</div><div class="value green" id="opsReadyNow">—</div></div>
+        <div class="stat-card"><div class="label">Batteries Charging</div><div class="value amber" id="opsChargingNow">—</div></div>
         <div class="stat-card"><div class="label">Power</div><div class="value" id="opsPowerNow">—</div></div>
         <div class="stat-card"><div class="label">Wifi</div><div class="value" id="opsWifiNow">—</div></div>
-        <div class="stat-card"><div class="label">Chargers Active</div><div class="value green" id="opsChargersNow">—</div></div>
-        <div class="stat-card"><div class="label">Batteries Ready</div><div class="value green" id="opsBatteriesNow">—</div></div>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Log a check-in</h2>
-      <form class="entry-form" id="opsForm">
-        <div class="field"><label>Your name</label><input type="text" id="ops_name" placeholder="e.g. Wangechi, night shift"></div>
+      <h2>Log an action</h2>
+      <div class="field" style="max-width:320px; margin-bottom:14px;">
+        <label>Your name</label>
+        <input type="text" id="ops_name" placeholder="e.g. Wangechi, night shift">
+      </div>
+
+      <div class="btn-row" style="margin-bottom:16px;">
+        <button class="btn" id="opsIssueBtn" style="font-size:1rem; padding:16px 20px;">🔋 Issue Battery</button>
+        <button class="btn" id="opsStartChargeBtn" style="font-size:1rem; padding:16px 20px; background:var(--amber);">⚡ Start Charging (+1)</button>
+        <button class="btn secondary" id="opsStopChargeBtn" style="font-size:1rem; padding:16px 20px;">✅ Stop Charging (−1)</button>
+      </div>
+
+      <div class="entry-form" style="margin-bottom:10px;">
         <div class="field">
           <label>Power status</label>
-          <select id="ops_power">
-            <option>Mains Grid</option><option>Backup Generator</option><option>Grid Down</option>
+          <select id="ops_power_select">
+            <option>Grid Power</option><option>Generator</option><option>Power Outage</option>
           </select>
         </div>
         <div class="field">
           <label>Wifi status</label>
-          <select id="ops_wifi"><option>Online</option><option>Offline</option></select>
+          <select id="ops_wifi_select"><option>Online</option><option>Offline</option></select>
         </div>
-        <div class="field"><label>Chargers active</label><input type="number" id="ops_chargers" min="0" step="1" value="0"></div>
-        <div class="field"><label>Batteries ready</label><input type="number" id="ops_batteries" min="0" step="1" value="0"></div>
-        <div class="field full"><label>Notes / issues</label><input type="text" id="ops_notes" placeholder="e.g. Battery #3 not charging"></div>
-      </form>
-      <div id="opsFormError" style="color:var(--danger); font-family:var(--mono); font-size:0.78rem; margin-bottom:8px; min-height:1em;"></div>
-      <div class="btn-row">
-        <button class="btn" id="opsSaveBtn">Log check-in</button>
+        <div class="field full"><label>Notes (optional, for exceptional cases)</label><input type="text" id="ops_notes" placeholder="e.g. Battery #3 not charging"></div>
+      </div>
+      <div id="opsFormError" style="color:var(--danger); font-family:var(--mono); font-size:0.78rem; min-height:1em;"></div>
+    </section>
+
+    <section class="panel" id="opsManualAdjustPanel" style="display:none; border-color:var(--amber);">
+      <h2 style="color:var(--amber);">Manual adjustment <span class="eyebrow">Owner only — for physical recounts or corrections</span></h2>
+      <div class="entry-form">
+        <div class="field"><label>Set Batteries Ready to</label><input type="number" id="ops_adjust_ready" min="0" step="1"></div>
+        <div class="field"><label>Set Batteries Charging to</label><input type="number" id="ops_adjust_charging" min="0" step="1"></div>
+      </div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn secondary" id="opsAdjustBtn">Apply correction</button>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Recent check-ins <span class="eyebrow">Most recent first</span></h2>
+      <h2>Activity log <span class="eyebrow">Most recent first</span></h2>
       <div class="table-wrap">
         <table id="opsTable">
           <thead>
-            <tr><th>When</th><th>Logged by</th><th>Power</th><th>Wifi</th><th>Chargers</th><th>Batteries</th><th>Notes</th><th></th></tr>
+            <tr><th>When</th><th>By</th><th>Action</th><th>Detail</th></tr>
           </thead>
           <tbody id="opsTbody"></tbody>
         </table>
@@ -640,7 +657,8 @@ const PERSONAL_INCOME_CATS = [
 
 let biz = [];       // business weekly entries
 let per = [];       // personal transactions
-let ops = [];       // station operations check-ins
+let ops = [];       // station operations action log (most recent first)
+let stationStatus = { batteries_ready:0, batteries_charging:0, power_status:'Grid Power', wifi_status:'Online', updated_at:null, updated_by_name:'' };
 let editingBizId = null;
 let editingPerId = null;
 let bizPie, bizBar, perPie, perBar, assetTagChart;
@@ -745,13 +763,20 @@ async function loadAll(){
     budget_line: t.budget_line || '', asset_tag: t.asset_tag || ''
   }));
 
+  const { data: statusRow, error: statusErr } = await sb
+    .from('station_status').select('*').eq('id', 1).maybeSingle();
+  if(statusErr){ console.error('load station status failed', statusErr); }
+  else if(statusRow) stationStatus = {
+    batteries_ready: Number(statusRow.batteries_ready), batteries_charging: Number(statusRow.batteries_charging),
+    power_status: statusRow.power_status, wifi_status: statusRow.wifi_status,
+    updated_at: statusRow.updated_at, updated_by_name: statusRow.updated_by_name || ''
+  };
+
   const { data: opsRows, error: opsErr } = await sb
-    .from('station_status_log').select('*').order('created_at', { ascending: false });
-  if(opsErr){ console.error('load ops failed', opsErr); ops = []; }
+    .from('station_operations_log').select('*').order('created_at', { ascending: false }).limit(100);
+  if(opsErr){ console.error('load ops log failed', opsErr); ops = []; }
   else ops = (opsRows || []).map(o => ({
-    id: o.id, logged_by_name: o.logged_by_name || '', power_status: o.power_status,
-    wifi_status: o.wifi_status, chargers_active: Number(o.chargers_active),
-    batteries_ready: Number(o.batteries_ready), notes: o.notes || '', created_at: o.created_at
+    id: o.id, action: o.action, detail: o.detail || '', logged_by_name: o.logged_by_name || '', created_at: o.created_at
   }));
 
   updatePendingBanner();
@@ -944,100 +969,133 @@ async function deletePerRow(id){
   if(error) console.error('delete personal failed', error);
 }
 
-/* ---- station operations check-in CRUD ---- */
-async function insertOpsRow(row){
-  const { data, error } = await sb.from('station_status_log').insert([row]).select();
-  if(error){ console.error('insert ops failed', error); return { ok:false, error: error.message }; }
-  return { ok:true, row: {
-    id: data[0].id, logged_by_name: data[0].logged_by_name, power_status: data[0].power_status,
-    wifi_status: data[0].wifi_status, chargers_active: Number(data[0].chargers_active),
-    batteries_ready: Number(data[0].batteries_ready), notes: data[0].notes || '', created_at: data[0].created_at
-  }};
-}
-async function deleteOpsRow(id){
-  const { error } = await sb.from('station_status_log').delete().eq('id', id);
-  if(error) console.error('delete ops failed', error);
+/* ---- station operations: button-based actions, no free-typed counts ---- */
+async function applyOpsAction({ action, detail, statusPatch }){
+  const name = document.getElementById('ops_name').value.trim();
+  const errEl = document.getElementById('opsFormError');
+  errEl.textContent = '';
+  if(!name){
+    errEl.textContent = 'Enter your name first so this action can be traced to whoever did it.';
+    return false;
+  }
+
+  const newStatus = { ...stationStatus, ...statusPatch, updated_at: new Date().toISOString(), updated_by_name: name };
+  const { error: updateErr } = await sb.from('station_status').update({
+    batteries_ready: newStatus.batteries_ready, batteries_charging: newStatus.batteries_charging,
+    power_status: newStatus.power_status, wifi_status: newStatus.wifi_status,
+    updated_at: newStatus.updated_at, updated_by_name: newStatus.updated_by_name
+  }).eq('id', 1);
+  if(updateErr){ errEl.textContent = 'Could not update station status: ' + updateErr.message; return false; }
+
+  stationStatus = newStatus;
+
+  const notes = document.getElementById('ops_notes').value.trim();
+  const fullDetail = notes ? `${detail} — ${notes}` : detail;
+  const { data, error: logErr } = await sb.from('station_operations_log')
+    .insert([{ action, detail: fullDetail, logged_by_name: name }]).select();
+  if(!logErr && data) ops.unshift({ id: data[0].id, action, detail: fullDetail, logged_by_name: name, created_at: data[0].created_at });
+
+  document.getElementById('ops_notes').value = '';
+  renderOperations();
+  return true;
 }
 
-function renderOperations(){
-  const latest = ops[0]; // already sorted newest-first from loadAll
-  if(latest){
-    document.getElementById('opsPowerNow').textContent = latest.power_status;
-    document.getElementById('opsWifiNow').textContent = latest.wifi_status;
-    document.getElementById('opsChargersNow').textContent = latest.chargers_active;
-    document.getElementById('opsBatteriesNow').textContent = latest.batteries_ready;
-    document.getElementById('opsLastUpdated').textContent =
-      `Last update: ${new Date(latest.created_at).toLocaleString('en-KE')} by ${latest.logged_by_name || 'unknown'}`;
-  } else {
-    document.getElementById('opsPowerNow').textContent = '—';
-    document.getElementById('opsWifiNow').textContent = '—';
-    document.getElementById('opsChargersNow').textContent = '—';
-    document.getElementById('opsBatteriesNow').textContent = '—';
-    document.getElementById('opsLastUpdated').textContent = 'No check-ins logged yet';
+document.getElementById('opsIssueBtn').addEventListener('click', async ()=>{
+  if(stationStatus.batteries_ready <= 0){
+    document.getElementById('opsFormError').textContent = 'No batteries currently ready to issue.';
+    return;
   }
+  await applyOpsAction({
+    action: 'Battery Issued', detail: 'Battery issued to customer',
+    statusPatch: { batteries_ready: stationStatus.batteries_ready - 1 }
+  });
+});
+
+document.getElementById('opsStartChargeBtn').addEventListener('click', async ()=>{
+  await applyOpsAction({
+    action: 'Charging Started', detail: 'Started charging a battery',
+    statusPatch: { batteries_charging: stationStatus.batteries_charging + 1 }
+  });
+});
+
+document.getElementById('opsStopChargeBtn').addEventListener('click', async ()=>{
+  if(stationStatus.batteries_charging <= 0){
+    document.getElementById('opsFormError').textContent = 'No batteries are currently charging.';
+    return;
+  }
+  await applyOpsAction({
+    action: 'Charging Completed', detail: 'Finished charging — moved to ready',
+    statusPatch: { batteries_charging: stationStatus.batteries_charging - 1, batteries_ready: stationStatus.batteries_ready + 1 }
+  });
+});
+
+document.getElementById('ops_power_select').addEventListener('change', async (e)=>{
+  const newPower = e.target.value;
+  if(newPower === stationStatus.power_status) return;
+  const ok = await applyOpsAction({
+    action: 'Power Status Changed', detail: `Power status changed to ${newPower}`,
+    statusPatch: { power_status: newPower }
+  });
+  if(!ok) e.target.value = stationStatus.power_status;
+});
+
+document.getElementById('ops_wifi_select').addEventListener('change', async (e)=>{
+  const newWifi = e.target.value;
+  if(newWifi === stationStatus.wifi_status) return;
+  const ok = await applyOpsAction({
+    action: 'Wifi Status Changed', detail: `Wifi status changed to ${newWifi}`,
+    statusPatch: { wifi_status: newWifi }
+  });
+  if(!ok) e.target.value = stationStatus.wifi_status;
+});
+
+document.getElementById('opsAdjustBtn').addEventListener('click', async ()=>{
+  const readyVal = parseInt(document.getElementById('ops_adjust_ready').value, 10);
+  const chargingVal = parseInt(document.getElementById('ops_adjust_charging').value, 10);
+  if(isNaN(readyVal) || isNaN(chargingVal) || readyVal < 0 || chargingVal < 0){
+    document.getElementById('opsFormError').textContent = 'Enter valid, non-negative numbers for both counts.';
+    return;
+  }
+  if(!confirm(`Manually set Batteries Ready to ${readyVal} and Batteries Charging to ${chargingVal}? This overrides the automatic count.`)) return;
+  await applyOpsAction({
+    action: 'Manual Adjustment', detail: `Ready set to ${readyVal}, Charging set to ${chargingVal} (manual correction)`,
+    statusPatch: { batteries_ready: readyVal, batteries_charging: chargingVal }
+  });
+});
+
+function renderOperations(){
+  document.getElementById('opsReadyNow').textContent = stationStatus.batteries_ready;
+  document.getElementById('opsChargingNow').textContent = stationStatus.batteries_charging;
+  document.getElementById('opsPowerNow').textContent = stationStatus.power_status;
+  document.getElementById('opsWifiNow').textContent = stationStatus.wifi_status;
+  document.getElementById('opsLastUpdated').textContent = stationStatus.updated_at
+    ? `Last update: ${new Date(stationStatus.updated_at).toLocaleString('en-KE')} by ${stationStatus.updated_by_name || 'unknown'}`
+    : 'No actions logged yet';
+
+  document.getElementById('ops_power_select').value = stationStatus.power_status;
+  document.getElementById('ops_wifi_select').value = stationStatus.wifi_status;
+
+  const powerCard = document.getElementById('opsPowerNow').closest('.stat-card');
+  if(stationStatus.power_status === 'Power Outage') powerCard.classList.add('flag-card'); else powerCard.classList.remove('flag-card');
+  const wifiCard = document.getElementById('opsWifiNow').closest('.stat-card');
+  if(stationStatus.wifi_status === 'Offline') wifiCard.classList.add('flag-card'); else wifiCard.classList.remove('flag-card');
+
+  const manualPanel = document.getElementById('opsManualAdjustPanel');
+  if(manualPanel) manualPanel.style.display = (currentRole === 'owner') ? 'block' : 'none';
 
   const tbody = document.getElementById('opsTbody');
   tbody.innerHTML = '';
   ops.forEach(o=>{
     const tr = document.createElement('tr');
-    if(o.power_status === 'Grid Down' || o.wifi_status === 'Offline') tr.classList.add('flag');
     tr.innerHTML = `
       <td>${new Date(o.created_at).toLocaleString('en-KE')}</td>
       <td>${o.logged_by_name || '—'}</td>
-      <td>${o.power_status}</td>
-      <td>${o.wifi_status}</td>
-      <td>${o.chargers_active}</td>
-      <td>${o.batteries_ready}</td>
-      <td>${o.notes || '<span style="color:var(--text-dim);">—</span>'}</td>
-      <td class="row-actions">
-        ${currentRole === 'owner' ? `<button class="icon-btn" data-opsdel="${o.id}">Del</button>` : ''}
-      </td>
+      <td>${o.action}</td>
+      <td>${o.detail || '<span style="color:var(--text-dim);">—</span>'}</td>
     `;
     tbody.appendChild(tr);
   });
-  tbody.querySelectorAll('[data-opsdel]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      if(!confirm('Delete this check-in entry?')) return;
-      await deleteOpsRow(btn.dataset.opsdel);
-      ops = ops.filter(o=>o.id !== btn.dataset.opsdel);
-      renderOperations();
-    });
-  });
 }
-
-document.getElementById('opsSaveBtn').addEventListener('click', async ()=>{
-  const name = document.getElementById('ops_name').value.trim();
-  const power_status = document.getElementById('ops_power').value;
-  const wifi_status = document.getElementById('ops_wifi').value;
-  const chargers_active = parseInt(document.getElementById('ops_chargers').value, 10) || 0;
-  const batteries_ready = parseInt(document.getElementById('ops_batteries').value, 10) || 0;
-  const notes = document.getElementById('ops_notes').value.trim();
-  const errEl = document.getElementById('opsFormError');
-  errEl.textContent = '';
-
-  if(!name){
-    errEl.textContent = 'Enter your name so this check-in can be traced to whoever logged it.';
-    return;
-  }
-  if(chargers_active < 0 || batteries_ready < 0){
-    errEl.textContent = 'These figures cannot be negative.';
-    return;
-  }
-
-  document.getElementById('opsSaveBtn').disabled = true;
-  const result = await insertOpsRow({ logged_by_name: name, power_status, wifi_status, chargers_active, batteries_ready, notes });
-  document.getElementById('opsSaveBtn').disabled = false;
-
-  if(!result.ok){
-    errEl.textContent = result.error;
-    return;
-  }
-  ops.unshift(result.row);
-  document.getElementById('ops_notes').value = '';
-  document.getElementById('ops_chargers').value = 0;
-  document.getElementById('ops_batteries').value = 0;
-  renderOperations();
-});
 
 /* ============================================================
    BUSINESS CALC — Col E/F/G per ruleset, G rebuilt as live audit
@@ -1922,7 +1980,11 @@ function setupRealtimeSync(){
       await loadAll();
       renderBusiness();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'station_status_log' }, async (payload)=>{
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'station_status' }, async (payload)=>{
+      await loadAll();
+      renderOperations();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'station_operations_log' }, async (payload)=>{
       await loadAll();
       renderOperations();
     })
