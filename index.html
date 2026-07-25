@@ -269,7 +269,13 @@
     <div class="auth-error" id="authError"></div>
     <div class="auth-success" id="authSuccess"></div>
     <div class="field" id="emailField"><label>Email</label><input type="email" id="auth_email" placeholder="you@example.com" autocomplete="email"></div>
-    <div class="field" id="passwordField"><label id="passwordLabel">Password</label><input type="password" id="auth_password" placeholder="••••••••" autocomplete="current-password"></div>
+    <div class="field" id="passwordField">
+      <label id="passwordLabel">Password</label>
+      <div style="position:relative;">
+        <input type="password" id="auth_password" placeholder="••••••••" autocomplete="current-password" style="padding-right:44px;">
+        <button type="button" id="togglePasswordBtn" aria-label="Show password" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-dim); font-size:0.9rem; padding:6px; cursor:pointer;">👁️</button>
+      </div>
+    </div>
     <button class="btn" id="authSubmitBtn" style="width:100%;">Sign in</button>
     <div class="auth-toggle" style="margin-top:16px; display:flex; flex-direction:column; gap:10px; text-align:center; font-size:0.78rem; color:var(--text-dim);">
       <div id="toggleAccountContainer">
@@ -587,11 +593,6 @@
   </div>
 
 </main>
-
-<footer class="note">
-  Data is stored to your Motionz Ledger account and syncs across sessions. Rows in red mean a rule was broken — negative
-  surplus (carried debt), or a Food &amp; Tx baseline change while payout was above KSh 1,250.
-</footer>
 
 <!-- Modal, reused as a read-only change-history viewer -->
 <div class="modal-backdrop" id="modalBackdrop">
@@ -1785,6 +1786,15 @@ document.getElementById('authToggleBtn').addEventListener('click', ()=>{
   setAuthMode(authMode === 'signin' || authMode === 'forgot' ? 'signup' : 'signin');
 });
 document.getElementById('authForgotBtn').addEventListener('click', ()=> setAuthMode('forgot'));
+
+document.getElementById('togglePasswordBtn').addEventListener('click', ()=>{
+  const input = document.getElementById('auth_password');
+  const btn = document.getElementById('togglePasswordBtn');
+  const isHidden = input.type === 'password';
+  input.type = isHidden ? 'text' : 'password';
+  btn.textContent = isHidden ? '🙈' : '👁️';
+  btn.setAttribute('aria-label', isHidden ? 'Hide password' : 'Show password');
+});
 
 document.getElementById('authSubmitBtn').addEventListener('click', async ()=>{
   const email = document.getElementById('auth_email').value.trim();
