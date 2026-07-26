@@ -677,7 +677,7 @@ let stationStatus = { batteries_ready:0, batteries_charging:0, power_status:'Gri
 // Physical station constants — update these two numbers if the station's
 // actual inventory changes (more batteries bought, another charger installed).
 const TOTAL_BATTERIES = 5;
-const TOTAL_CHARGERS = 2;
+const TOTAL_CHARGERS = 3;
 let editingBizId = null;
 let editingPerId = null;
 let bizPie, bizBar, perPie, perBar, assetTagChart;
@@ -1025,7 +1025,7 @@ document.getElementById('opsSwapBtn').addEventListener('click', async ()=>{
     return;
   }
   if(stationStatus.batteries_charging >= TOTAL_CHARGERS){
-    document.getElementById('opsFormError').textContent = `Both chargers are already in use (${TOTAL_CHARGERS}/${TOTAL_CHARGERS}) — the returning battery has nowhere to charge yet.`;
+    document.getElementById('opsFormError').textContent = `All ${TOTAL_CHARGERS} chargers are already in use (${TOTAL_CHARGERS}/${TOTAL_CHARGERS}) — the returning battery has nowhere to charge yet.`;
     return;
   }
   await applyOpsAction({
