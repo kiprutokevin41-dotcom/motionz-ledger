@@ -405,6 +405,7 @@
       <div class="stat-grid">
         <div class="stat-card"><div class="label">Batteries Ready</div><div class="value green" id="opsReadyNow">—</div></div>
         <div class="stat-card"><div class="label">Batteries Charging</div><div class="value amber" id="opsChargingNow">—</div></div>
+        <div class="stat-card"><div class="label">Waiting to Charge</div><div class="value amber" id="opsWaitingNow">—</div></div>
         <div class="stat-card"><div class="label">Unaccounted (should be 0)</div><div class="value" id="opsOutNow">—</div></div>
         <div class="stat-card"><div class="label">Power</div><div class="value" id="opsPowerNow">—</div></div>
         <div class="stat-card"><div class="label">Wifi</div><div class="value" id="opsWifiNow">—</div></div>
@@ -447,6 +448,7 @@
       <div class="entry-form">
         <div class="field"><label>Set Batteries Ready to</label><input type="number" id="ops_adjust_ready" min="0" step="1"></div>
         <div class="field"><label>Set Batteries Charging to</label><input type="number" id="ops_adjust_charging" min="0" step="1"></div>
+        <div class="field"><label>Set Waiting to Charge to</label><input type="number" id="ops_adjust_waiting" min="0" step="1"></div>
       </div>
       <div class="btn-row" style="margin-top:10px;">
         <button class="btn secondary" id="opsAdjustBtn">Apply correction</button>
@@ -464,8 +466,8 @@
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Activity log <span class="eyebrow">Most recent first</span></h2>
+    <section class="panel" id="opsActivityLogPanel">
+      <h2>Activity log <span class="eyebrow">Owner only — most recent first</span></h2>
       <div class="table-wrap">
         <table id="opsTable">
           <thead>
@@ -672,7 +674,7 @@ const PERSONAL_INCOME_CATS = [
 let biz = [];       // business weekly entries
 let per = [];       // personal transactions
 let ops = [];       // station operations action log (most recent first)
-let stationStatus = { batteries_ready:0, batteries_charging:0, power_status:'Grid Power', wifi_status:'Online', updated_at:null, updated_by_name:'' };
+let stationStatus = { batteries_ready:0, batteries_charging:0, batteries_waiting:0, power_status:'Grid Power', wifi_status:'Online', updated_at:null, updated_by_name:'' };
 
 // Physical station constants — update these two numbers if the station's
 // actual inventory changes (more batteries bought, another charger installed).
@@ -787,6 +789,7 @@ async function loadAll(){
   if(statusErr){ console.error('load station status failed', statusErr); }
   else if(statusRow) stationStatus = {
     batteries_ready: Number(statusRow.batteries_ready), batteries_charging: Number(statusRow.batteries_charging),
+    batteries_waiting: Number(statusRow.batteries_waiting || 0),
     power_status: statusRow.power_status, wifi_status: statusRow.wifi_status,
     updated_at: statusRow.updated_at, updated_by_name: statusRow.updated_by_name || ''
   };
@@ -989,7 +992,7 @@ async function deletePerRow(id){
 }
 
 /* ---- station operations: button-based actions, no free-typed counts ---- */
-async function applyOpsAction({ action, detail, statusPatch }){
+async function applyOpsAction({ action, detail, statusPatch, extraLog }){
   const name = document.getElementById('ops_name').value.trim();
   const errEl = document.getElementById('opsFormError');
   errEl.textContent = '';
@@ -1001,6 +1004,7 @@ async function applyOpsAction({ action, detail, statusPatch }){
   const newStatus = { ...stationStatus, ...statusPatch, updated_at: new Date().toISOString(), updated_by_name: name };
   const { error: updateErr } = await sb.from('station_status').update({
     batteries_ready: newStatus.batteries_ready, batteries_charging: newStatus.batteries_charging,
+    batteries_waiting: newStatus.batteries_waiting,
     power_status: newStatus.power_status, wifi_status: newStatus.wifi_status,
     updated_at: newStatus.updated_at, updated_by_name: newStatus.updated_by_name
   }).eq('id', 1);
@@ -1010,9 +1014,12 @@ async function applyOpsAction({ action, detail, statusPatch }){
 
   const notes = document.getElementById('ops_notes').value.trim();
   const fullDetail = notes ? `${detail} — ${notes}` : detail;
+  const entriesToLog = [{ action, detail: fullDetail }];
+  if(extraLog) entriesToLog.push({ action: extraLog.action, detail: extraLog.detail });
+
   const { data, error: logErr } = await sb.from('station_operations_log')
-    .insert([{ action, detail: fullDetail, logged_by_name: name }]).select();
-  if(!logErr && data) ops.unshift({ id: data[0].id, action, detail: fullDetail, logged_by_name: name, created_at: data[0].created_at });
+    .insert(entriesToLog.map(e => ({ ...e, logged_by_name: name }))).select();
+  if(!logErr && data) data.forEach(row => ops.unshift({ id: row.id, action: row.action, detail: row.detail, logged_by_name: name, created_at: row.created_at }));
 
   document.getElementById('ops_notes').value = '';
   renderOperations();
@@ -1024,16 +1031,15 @@ document.getElementById('opsSwapBtn').addEventListener('click', async ()=>{
     document.getElementById('opsFormError').textContent = 'No charged batteries ready to hand over.';
     return;
   }
-  if(stationStatus.batteries_charging >= TOTAL_CHARGERS){
-    document.getElementById('opsFormError').textContent = `All ${TOTAL_CHARGERS} chargers are already in use (${TOTAL_CHARGERS}/${TOTAL_CHARGERS}) — the returning battery has nowhere to charge yet.`;
-    return;
-  }
+  const chargerFree = stationStatus.batteries_charging < TOTAL_CHARGERS;
   await applyOpsAction({
-    action: 'Battery Swapped', detail: 'Charged battery given to rider, depleted battery received and put on charge',
-    statusPatch: {
-      batteries_ready: stationStatus.batteries_ready - 1,
-      batteries_charging: stationStatus.batteries_charging + 1
-    }
+    action: 'Battery Swapped',
+    detail: chargerFree
+      ? 'Charged battery given to rider; depleted battery started charging immediately'
+      : `Charged battery given to rider; depleted battery queued — all ${TOTAL_CHARGERS} chargers in use`,
+    statusPatch: chargerFree
+      ? { batteries_ready: stationStatus.batteries_ready - 1, batteries_charging: stationStatus.batteries_charging + 1 }
+      : { batteries_ready: stationStatus.batteries_ready - 1, batteries_waiting: (stationStatus.batteries_waiting||0) + 1 }
   });
 });
 
@@ -1042,9 +1048,23 @@ document.getElementById('opsStopChargeBtn').addEventListener('click', async ()=>
     document.getElementById('opsFormError').textContent = 'No batteries are currently charging.';
     return;
   }
+  const hasWaiting = (stationStatus.batteries_waiting||0) > 0;
   await applyOpsAction({
-    action: 'Charging Completed', detail: 'Finished charging — moved to ready',
-    statusPatch: { batteries_charging: stationStatus.batteries_charging - 1, batteries_ready: stationStatus.batteries_ready + 1 }
+    action: 'Charging Completed',
+    detail: hasWaiting
+      ? 'Finished charging — moved to ready. A queued battery automatically took the free charger.'
+      : 'Finished charging — moved to ready',
+    statusPatch: hasWaiting
+      ? {
+          batteries_charging: stationStatus.batteries_charging, // one leaves, queued one takes the slot — net unchanged
+          batteries_ready: stationStatus.batteries_ready + 1,
+          batteries_waiting: stationStatus.batteries_waiting - 1
+        }
+      : {
+          batteries_charging: stationStatus.batteries_charging - 1,
+          batteries_ready: stationStatus.batteries_ready + 1
+        },
+    extraLog: hasWaiting ? { action: 'Charging Started', detail: 'Queued battery automatically promoted to the free charger slot' } : null
   });
 });
 
@@ -1071,29 +1091,31 @@ document.getElementById('ops_wifi_select').addEventListener('change', async (e)=
 document.getElementById('opsAdjustBtn').addEventListener('click', async ()=>{
   const readyVal = parseInt(document.getElementById('ops_adjust_ready').value, 10);
   const chargingVal = parseInt(document.getElementById('ops_adjust_charging').value, 10);
-  if(isNaN(readyVal) || isNaN(chargingVal) || readyVal < 0 || chargingVal < 0){
-    document.getElementById('opsFormError').textContent = 'Enter valid, non-negative numbers for both counts.';
+  const waitingVal = parseInt(document.getElementById('ops_adjust_waiting').value, 10) || 0;
+  if(isNaN(readyVal) || isNaN(chargingVal) || readyVal < 0 || chargingVal < 0 || waitingVal < 0){
+    document.getElementById('opsFormError').textContent = 'Enter valid, non-negative numbers for all counts.';
     return;
   }
   if(chargingVal > TOTAL_CHARGERS){
     document.getElementById('opsFormError').textContent = `Only ${TOTAL_CHARGERS} chargers exist at this station — Charging can't exceed ${TOTAL_CHARGERS}.`;
     return;
   }
-  if(readyVal + chargingVal > TOTAL_BATTERIES){
-    document.getElementById('opsFormError').textContent = `Ready + Charging can't exceed the station's total of ${TOTAL_BATTERIES} batteries.`;
+  if(readyVal + chargingVal + waitingVal > TOTAL_BATTERIES){
+    document.getElementById('opsFormError').textContent = `Ready + Charging + Waiting can't exceed the station's total of ${TOTAL_BATTERIES} batteries.`;
     return;
   }
-  if(!confirm(`Manually set Batteries Ready to ${readyVal} and Batteries Charging to ${chargingVal}? This overrides the automatic count.`)) return;
+  if(!confirm(`Manually set Ready=${readyVal}, Charging=${chargingVal}, Waiting=${waitingVal}? This overrides the automatic count.`)) return;
   await applyOpsAction({
-    action: 'Manual Adjustment', detail: `Ready set to ${readyVal}, Charging set to ${chargingVal} (manual correction)`,
-    statusPatch: { batteries_ready: readyVal, batteries_charging: chargingVal }
+    action: 'Manual Adjustment', detail: `Ready set to ${readyVal}, Charging set to ${chargingVal}, Waiting set to ${waitingVal} (manual correction)`,
+    statusPatch: { batteries_ready: readyVal, batteries_charging: chargingVal, batteries_waiting: waitingVal }
   });
 });
 
 function renderOperations(){
   document.getElementById('opsReadyNow').textContent = stationStatus.batteries_ready;
   document.getElementById('opsChargingNow').textContent = stationStatus.batteries_charging;
-  const out = TOTAL_BATTERIES - stationStatus.batteries_ready - stationStatus.batteries_charging;
+  document.getElementById('opsWaitingNow').textContent = stationStatus.batteries_waiting || 0;
+  const out = TOTAL_BATTERIES - stationStatus.batteries_ready - stationStatus.batteries_charging - (stationStatus.batteries_waiting||0);
   document.getElementById('opsOutNow').textContent = out;
   const outCard = document.getElementById('opsOutNow').closest('.stat-card');
   if(out !== 0) outCard.classList.add('flag-card'); else outCard.classList.remove('flag-card');
@@ -1123,6 +1145,9 @@ function renderOperations(){
       insightsPanel.style.display = 'none';
     }
   }
+
+  const activityLogPanel = document.getElementById('opsActivityLogPanel');
+  if(activityLogPanel) activityLogPanel.style.display = (currentRole === 'owner') ? 'block' : 'none';
 
   const tbody = document.getElementById('opsTbody');
   tbody.innerHTML = '';
@@ -1194,7 +1219,9 @@ function renderOwnerInsights(){
   const startQueue = [];
   const durations = [];
   sortedOps.forEach(o=>{
-    if(o.action === 'Charging Started' || o.action === 'Battery Swapped') startQueue.push(new Date(o.created_at));
+    const isRealStart = o.action === 'Charging Started'
+      || (o.action === 'Battery Swapped' && o.detail && o.detail.includes('started charging immediately'));
+    if(isRealStart) startQueue.push(new Date(o.created_at));
     else if(o.action === 'Charging Completed' && startQueue.length > 0){
       const start = startQueue.shift();
       durations.push(new Date(o.created_at) - start);
