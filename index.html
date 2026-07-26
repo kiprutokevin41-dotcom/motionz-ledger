@@ -405,7 +405,7 @@
       <div class="stat-grid">
         <div class="stat-card"><div class="label">Batteries Ready</div><div class="value green" id="opsReadyNow">—</div></div>
         <div class="stat-card"><div class="label">Batteries Charging</div><div class="value amber" id="opsChargingNow">—</div></div>
-        <div class="stat-card"><div class="label">Batteries Out (with customers)</div><div class="value" id="opsOutNow">—</div></div>
+        <div class="stat-card"><div class="label">Unaccounted (should be 0)</div><div class="value" id="opsOutNow">—</div></div>
         <div class="stat-card"><div class="label">Power</div><div class="value" id="opsPowerNow">—</div></div>
         <div class="stat-card"><div class="label">Wifi</div><div class="value" id="opsWifiNow">—</div></div>
       </div>
@@ -422,8 +422,7 @@
       </div>
 
       <div class="btn-row" style="margin-bottom:16px;">
-        <button class="btn" id="opsIssueBtn" style="font-size:1rem; padding:16px 20px;">🔋 Issue Battery</button>
-        <button class="btn" id="opsStartChargeBtn" style="font-size:1rem; padding:16px 20px; background:var(--amber);">⚡ Start Charging (+1)</button>
+        <button class="btn" id="opsSwapBtn" style="font-size:1rem; padding:16px 20px;">🔄 Swap Battery</button>
         <button class="btn secondary" id="opsStopChargeBtn" style="font-size:1rem; padding:16px 20px;">✅ Stop Charging (−1)</button>
       </div>
 
@@ -1020,29 +1019,21 @@ async function applyOpsAction({ action, detail, statusPatch }){
   return true;
 }
 
-document.getElementById('opsIssueBtn').addEventListener('click', async ()=>{
+document.getElementById('opsSwapBtn').addEventListener('click', async ()=>{
   if(stationStatus.batteries_ready <= 0){
-    document.getElementById('opsFormError').textContent = 'No batteries currently ready to issue.';
+    document.getElementById('opsFormError').textContent = 'No charged batteries ready to hand over.';
     return;
   }
-  await applyOpsAction({
-    action: 'Battery Issued', detail: 'Battery issued to customer',
-    statusPatch: { batteries_ready: stationStatus.batteries_ready - 1 }
-  });
-});
-
-document.getElementById('opsStartChargeBtn').addEventListener('click', async ()=>{
   if(stationStatus.batteries_charging >= TOTAL_CHARGERS){
-    document.getElementById('opsFormError').textContent = `Both chargers are already in use (${TOTAL_CHARGERS}/${TOTAL_CHARGERS}).`;
-    return;
-  }
-  if(stationStatus.batteries_ready + stationStatus.batteries_charging + 1 > TOTAL_BATTERIES){
-    document.getElementById('opsFormError').textContent = `That would exceed the station's total of ${TOTAL_BATTERIES} batteries — check the counts before continuing.`;
+    document.getElementById('opsFormError').textContent = `Both chargers are already in use (${TOTAL_CHARGERS}/${TOTAL_CHARGERS}) — the returning battery has nowhere to charge yet.`;
     return;
   }
   await applyOpsAction({
-    action: 'Charging Started', detail: 'Started charging a battery',
-    statusPatch: { batteries_charging: stationStatus.batteries_charging + 1 }
+    action: 'Battery Swapped', detail: 'Charged battery given to rider, depleted battery received and put on charge',
+    statusPatch: {
+      batteries_ready: stationStatus.batteries_ready - 1,
+      batteries_charging: stationStatus.batteries_charging + 1
+    }
   });
 });
 
@@ -1104,6 +1095,8 @@ function renderOperations(){
   document.getElementById('opsChargingNow').textContent = stationStatus.batteries_charging;
   const out = TOTAL_BATTERIES - stationStatus.batteries_ready - stationStatus.batteries_charging;
   document.getElementById('opsOutNow').textContent = out;
+  const outCard = document.getElementById('opsOutNow').closest('.stat-card');
+  if(out !== 0) outCard.classList.add('flag-card'); else outCard.classList.remove('flag-card');
   document.getElementById('opsPowerNow').textContent = stationStatus.power_status;
   document.getElementById('opsWifiNow').textContent = stationStatus.wifi_status;
   document.getElementById('opsLastUpdated').textContent = stationStatus.updated_at
@@ -1201,7 +1194,7 @@ function renderOwnerInsights(){
   const startQueue = [];
   const durations = [];
   sortedOps.forEach(o=>{
-    if(o.action === 'Charging Started') startQueue.push(new Date(o.created_at));
+    if(o.action === 'Charging Started' || o.action === 'Battery Swapped') startQueue.push(new Date(o.created_at));
     else if(o.action === 'Charging Completed' && startQueue.length > 0){
       const start = startQueue.shift();
       durations.push(new Date(o.created_at) - start);
@@ -1221,7 +1214,7 @@ function renderOwnerInsights(){
   } else {
     const sinceTime = latestWeek.created_at ? new Date(latestWeek.created_at) : null;
     const swapsThisPeriod = sinceTime
-      ? ops.filter(o => o.action === 'Battery Issued' && new Date(o.created_at) > sinceTime).length
+      ? ops.filter(o => (o.action === 'Battery Swapped' || o.action === 'Battery Issued') && new Date(o.created_at) > sinceTime).length
       : 0;
     revenueEl.textContent = swapsThisPeriod > 0
       ? `${fmt(latestWeek.gross / swapsThisPeriod)} (${swapsThisPeriod} swap${swapsThisPeriod>1?'s':''} since ${latestWeek.week})`
@@ -2184,9 +2177,14 @@ async function bootApp(){
   document.getElementById('f_week').value = nextWeekLabel();
   document.getElementById('p_date').value = new Date().toISOString().slice(0,10);
   updateCategoryOptions();
-  renderBusiness();
-  renderPersonal();
-  renderOperations();
+
+  // Each section renders independently — if one throws (bad data, a missing
+  // element, anything unexpected), the others still get their turn instead
+  // of the whole screen silently freezing on placeholder dashes.
+  try{ renderBusiness(); }catch(e){ console.error('renderBusiness failed', e); }
+  try{ renderPersonal(); }catch(e){ console.error('renderPersonal failed', e); }
+  try{ renderOperations(); }catch(e){ console.error('renderOperations failed', e); }
+
   setupRealtimeSync();
   resetIdleTimer();
   if(navigator.onLine){ flushPendingQueue(); flushPendingQueuePer(); }
