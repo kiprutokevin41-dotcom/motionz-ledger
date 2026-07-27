@@ -362,7 +362,7 @@
     </section>
 
     <section class="panel">
-      <h2>Weekly ledger <span class="eyebrow">Col G is now a live audit, not a fixed zero</span></h2>
+      <h2>Weekly ledger <span class="eyebrow">Most recent first · Col G is now a live audit, not a fixed zero</span></h2>
       <div class="table-wrap">
         <table id="bizTable">
           <thead>
@@ -374,6 +374,7 @@
           <tbody id="bizTbody"></tbody>
         </table>
       </div>
+      <div id="bizPagination" style="display:flex; align-items:center; gap:6px; margin-top:12px;"></div>
       <div class="btn-row" style="margin-top:14px;">
         <button class="btn secondary" id="bizExportPdf">Download PDF report</button>
         <button class="btn secondary" id="bizExportCsv">Backup as CSV</button>
@@ -440,6 +441,7 @@
         </div>
         <div class="field full"><label>Notes (optional, for exceptional cases)</label><input type="text" id="ops_notes" placeholder="e.g. Battery #3 not charging"></div>
       </div>
+      <div id="opsFormSuccess" style="color:var(--mpesa); font-family:var(--mono); font-size:0.85rem; font-weight:600; min-height:1.2em; margin-bottom:4px;"></div>
       <div id="opsFormError" style="color:var(--danger); font-family:var(--mono); font-size:0.78rem; min-height:1em;"></div>
     </section>
 
@@ -476,6 +478,7 @@
           <tbody id="opsTbody"></tbody>
         </table>
       </div>
+      <div id="opsPagination" style="display:flex; align-items:center; gap:6px; margin-top:12px;"></div>
     </section>
 
   </div>
@@ -597,6 +600,7 @@
         </table>
       </div>
       <div id="perEmpty" class="empty-state" style="display:none;">No transactions logged yet. Add your first one above.</div>
+      <div id="perPagination" style="display:flex; align-items:center; gap:6px; margin-top:12px;"></div>
       <div class="btn-row" style="margin-top:14px;">
         <button class="btn secondary" id="perExportPdf">Download PDF report</button>
         <button class="btn secondary" id="perExportCsv">Backup as CSV</button>
@@ -683,6 +687,33 @@ const TOTAL_CHARGERS = 3;
 let editingBizId = null;
 let editingPerId = null;
 let bizPie, bizBar, perPie, perBar, assetTagChart;
+
+/* ============================================================
+   PAGINATION — shared across the Business ledger, Personal
+   transactions, and Operations activity log
+   ============================================================ */
+const PAGE_SIZE = 5;
+let bizPage = 0, perPage = 0, opsPage = 0;
+
+function paginate(array, page, pageSize){
+  const totalPages = Math.max(1, Math.ceil(array.length / pageSize));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+  const start = clampedPage * pageSize;
+  return { slice: array.slice(start, start + pageSize), page: clampedPage, totalPages };
+}
+
+function renderPaginationControls(containerId, page, totalPages, onPageChange){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  if(totalPages <= 1){ el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <button class="btn secondary" id="${containerId}_prev" ${page<=0?'disabled':''} style="padding:6px 12px; font-size:0.75rem;">‹ Prev</button>
+    <span style="font-family:var(--mono); font-size:0.75rem; color:var(--text-dim);">Page ${page+1} of ${totalPages}</span>
+    <button class="btn secondary" id="${containerId}_next" ${page>=totalPages-1?'disabled':''} style="padding:6px 12px; font-size:0.75rem;">Next ›</button>
+  `;
+  document.getElementById(`${containerId}_prev`).addEventListener('click', ()=> onPageChange(page-1));
+  document.getElementById(`${containerId}_next`).addEventListener('click', ()=> onPageChange(page+1));
+}
 
 const WEEK1_SEED = {
   id: "week1-seed",
@@ -992,10 +1023,12 @@ async function deletePerRow(id){
 }
 
 /* ---- station operations: button-based actions, no free-typed counts ---- */
-async function applyOpsAction({ action, detail, statusPatch, extraLog }){
+async function applyOpsAction({ action, detail, statusPatch, extraLog, successMessage }){
   const name = document.getElementById('ops_name').value.trim();
   const errEl = document.getElementById('opsFormError');
+  const succEl = document.getElementById('opsFormSuccess');
   errEl.textContent = '';
+  succEl.textContent = '';
   if(!name){
     errEl.textContent = 'Enter your name first so this action can be traced to whoever did it.';
     return false;
@@ -1021,6 +1054,11 @@ async function applyOpsAction({ action, detail, statusPatch, extraLog }){
     .insert(entriesToLog.map(e => ({ ...e, logged_by_name: name }))).select();
   if(!logErr && data) data.forEach(row => ops.unshift({ id: row.id, action: row.action, detail: row.detail, logged_by_name: name, created_at: row.created_at }));
 
+  if(successMessage){
+    succEl.textContent = `✅ ${successMessage}`;
+    setTimeout(()=>{ if(succEl.textContent === `✅ ${successMessage}`) succEl.textContent = ''; }, 4000);
+  }
+
   document.getElementById('ops_notes').value = '';
   renderOperations();
   return true;
@@ -1039,7 +1077,8 @@ document.getElementById('opsSwapBtn').addEventListener('click', async ()=>{
       : `Charged battery given to rider; depleted battery queued — all ${TOTAL_CHARGERS} chargers in use`,
     statusPatch: chargerFree
       ? { batteries_ready: stationStatus.batteries_ready - 1, batteries_charging: stationStatus.batteries_charging + 1 }
-      : { batteries_ready: stationStatus.batteries_ready - 1, batteries_waiting: (stationStatus.batteries_waiting||0) + 1 }
+      : { batteries_ready: stationStatus.batteries_ready - 1, batteries_waiting: (stationStatus.batteries_waiting||0) + 1 },
+    successMessage: chargerFree ? 'Swap logged — battery on charge' : 'Swap logged — battery queued for a charger'
   });
 });
 
@@ -1064,7 +1103,8 @@ document.getElementById('opsStopChargeBtn').addEventListener('click', async ()=>
           batteries_charging: stationStatus.batteries_charging - 1,
           batteries_ready: stationStatus.batteries_ready + 1
         },
-    extraLog: hasWaiting ? { action: 'Charging Started', detail: 'Queued battery automatically promoted to the free charger slot' } : null
+    extraLog: hasWaiting ? { action: 'Charging Started', detail: 'Queued battery automatically promoted to the free charger slot' } : null,
+    successMessage: hasWaiting ? 'Charging stopped — queued battery promoted' : 'Charging stopped successfully'
   });
 });
 
@@ -1073,7 +1113,8 @@ document.getElementById('ops_power_select').addEventListener('change', async (e)
   if(newPower === stationStatus.power_status) return;
   const ok = await applyOpsAction({
     action: 'Power Status Changed', detail: `Power status changed to ${newPower}`,
-    statusPatch: { power_status: newPower }
+    statusPatch: { power_status: newPower },
+    successMessage: `Power status updated to ${newPower}`
   });
   if(!ok) e.target.value = stationStatus.power_status;
 });
@@ -1083,7 +1124,8 @@ document.getElementById('ops_wifi_select').addEventListener('change', async (e)=
   if(newWifi === stationStatus.wifi_status) return;
   const ok = await applyOpsAction({
     action: 'Wifi Status Changed', detail: `Wifi status changed to ${newWifi}`,
-    statusPatch: { wifi_status: newWifi }
+    statusPatch: { wifi_status: newWifi },
+    successMessage: `Wifi status updated to ${newWifi}`
   });
   if(!ok) e.target.value = stationStatus.wifi_status;
 });
@@ -1107,7 +1149,8 @@ document.getElementById('opsAdjustBtn').addEventListener('click', async ()=>{
   if(!confirm(`Manually set Ready=${readyVal}, Charging=${chargingVal}, Waiting=${waitingVal}? This overrides the automatic count.`)) return;
   await applyOpsAction({
     action: 'Manual Adjustment', detail: `Ready set to ${readyVal}, Charging set to ${chargingVal}, Waiting set to ${waitingVal} (manual correction)`,
-    statusPatch: { batteries_ready: readyVal, batteries_charging: chargingVal, batteries_waiting: waitingVal }
+    statusPatch: { batteries_ready: readyVal, batteries_charging: chargingVal, batteries_waiting: waitingVal },
+    successMessage: 'Correction applied successfully'
   });
 });
 
@@ -1151,7 +1194,9 @@ function renderOperations(){
 
   const tbody = document.getElementById('opsTbody');
   tbody.innerHTML = '';
-  ops.forEach(o=>{
+  const { slice: opsPageRows, page: opsPageClamped, totalPages: opsTotalPages } = paginate(ops, opsPage, PAGE_SIZE);
+  opsPage = opsPageClamped;
+  opsPageRows.forEach(o=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${new Date(o.created_at).toLocaleString('en-KE')}</td>
@@ -1161,6 +1206,7 @@ function renderOperations(){
     `;
     tbody.appendChild(tr);
   });
+  renderPaginationControls('opsPagination', opsPage, opsTotalPages, (newPage)=>{ opsPage = newPage; renderOperations(); });
 }
 
 function formatDuration(ms){
@@ -1282,12 +1328,19 @@ function renderBusiness(){
   tbody.innerHTML = '';
 
   let safetyTotal = 0, opsTotal = 0, openCarry = 0;
-
-  biz.forEach((row, idx)=>{
+  biz.forEach(row=>{
     const c = calcRow(row);
     safetyTotal += c.safety;
     opsTotal += c.opsNet;
     if(c.deficit) openCarry += Math.abs(c.auditG);
+  });
+
+  const bizDescending = [...biz].reverse(); // most recent first for display/pagination
+  const { slice: bizPageRows, page: bizPageClamped, totalPages: bizTotalPages } = paginate(bizDescending, bizPage, PAGE_SIZE);
+  bizPage = bizPageClamped;
+
+  bizPageRows.forEach(row=>{
+    const c = calcRow(row);
 
     const tr = document.createElement('tr');
     if(c.deficit || c.baselineBroken) tr.classList.add('flag');
@@ -1317,6 +1370,8 @@ function renderBusiness(){
     `;
     tbody.appendChild(tr);
   });
+
+  renderPaginationControls('bizPagination', bizPage, bizTotalPages, (newPage)=>{ bizPage = newPage; renderBusiness(); });
 
   document.getElementById('bizActiveWeek').textContent = nextWeekLabel();
   document.getElementById('bizSafetyTotal').textContent = fmt(safetyTotal);
@@ -1586,7 +1641,10 @@ function renderPersonal(){
 
   document.getElementById('perEmpty').style.display = sorted.length ? 'none' : 'block';
 
-  sorted.forEach(t=>{
+  const { slice: perPageRows, page: perPageClamped, totalPages: perTotalPages } = paginate(sorted, perPage, PAGE_SIZE);
+  perPage = perPageClamped;
+
+  perPageRows.forEach(t=>{
     const tr = document.createElement('tr');
     const sign = t.type === 'inflow' ? '+' : '-';
     const color = t.type === 'inflow' ? 'var(--mpesa)' : 'var(--amber)';
@@ -1607,6 +1665,8 @@ function renderPersonal(){
     `;
     tbody.appendChild(tr);
   });
+
+  renderPaginationControls('perPagination', perPage, perTotalPages, (newPage)=>{ perPage = newPage; renderPersonal(); });
 
   tbody.querySelectorAll('[data-pedit]').forEach(btn=>{
     btn.addEventListener('click', ()=> openPerEdit(btn.dataset.pedit));
